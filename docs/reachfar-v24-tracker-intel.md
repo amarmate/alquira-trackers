@@ -358,3 +358,91 @@ Device:  (no reply, reconnects to the new server)
 ```
 
 Length check: `UPLOAD,60` is 9 bytes -> `0009`. `IP,113.81.229.9,5900` is 20 bytes -> `0014`.
+
+---
+
+## 10. USB channel (the charging cable carries data)
+
+Plugging the magnet cable into a Mac enumerates a USB device, so the connector is not
+charge-only:
+
+| Field | Value |
+|---|---|
+| Manufacturer string | `Coolsand` |
+| Vendor ID | `0x1782` (Spreadtrum / UNISOC; RDA "Coolsand" basebands use it after the 2014 merger) |
+| Product ID | `0x3D00` |
+| Speed | USB 2.0 full speed, 12 Mb/s |
+| Interfaces | 2 x vendor-specific (class `0xFF`) |
+
+`1782:3D00` is the identity that RDA8955-family GSM+GPS chips present (the same chip is in the
+Ai-Thinker A9G module and in many cheap 2G trackers). On those chips the two vendor-specific
+interfaces are **(unverified for the V24, well documented for the A9G)**:
+
+1. an **AT command port** (Hayes AT set of the modem stack, plus vendor extensions), and
+2. a **debug / trace port** used by the RDA `coolwatcher` tooling.
+
+No macOS driver exists; Windows uses the "RDA (Coolsand) USB driver"; Linux usually binds the
+generic serial driver:
+
+```
+sudo modprobe usbserial vendor=0x1782 product=0x3d00
+ls /dev/ttyUSB*          # expect two ports; the AT port is normally the first
+screen /dev/ttyUSB0 115200
+```
+
+From macOS without a driver, `pyusb` can talk to the bulk endpoints directly (`lsusb -v` /
+`system_profiler SPUSBDataType` to see endpoint numbers). Do not let a browser hold the device:
+close tabs that have WebUSB access first.
+
+### What the AT port is good for
+
+Even with the vendor firmware untouched this is a third control channel that does not depend on
+the SIM, so it removes the Vodafone "no SMS" problem for provisioning and diagnosis. First
+commands to try (each terminated with `\r`):
+
+```
+AT            -> OK
+ATI / AT+CGMR -> firmware / baseband version
+AT+CGSN       -> IMEI
+AT+CCID       -> SIM ICCID (proves the SIM is read)
+AT+CPIN?      -> READY (PIN state)
+AT+CSQ        -> signal quality
+AT+CREG?      -> GSM registration (0,1 home / 0,5 roaming / 0,2 searching / 0,3 denied)
+AT+CGATT?     -> GPRS attached?
+AT+CGDCONT?   -> APN contexts the firmware configured
+AT+COPS?      -> operator actually used
+```
+
+`AT+CREG?` and `AT+CGATT?` with the Vodafone IoT SIM inside answer, in seconds, the question that
+the LEDs and the vendor app only answer indirectly. Things to test after that
+**(all unverified)**:
+
+- whether the tracker's own command keywords (`ip,...#`, `apn,...#`, `center,...#`, `upload,...`)
+  are accepted on the AT port the way they are over SMS; ReachFar firmware often multiplexes
+  them onto the host UART;
+- whether `AT+CGDCONT=1,"IP","sme.vodafone.iot"` sticks across reboot or is overwritten by the
+  application's own APN setting (expect the latter; use the tracker command instead).
+
+The application firmware owns the modem, so some AT commands may be refused or answered while the
+application is mid-session. Read-only queries are safe; do not issue `AT+CFUN` / reset commands
+while the device is uploading.
+
+### Firmware access
+
+RDA8955 firmware is a `.lod` image flashed with RDA's Windows tools (`RDA Product Line Tool`,
+`coolwatcher` / CSDTK). Two facts matter:
+
+- **Backup first.** `coolwatcher` can read the flash back. Dump the shipped firmware of one
+  tracker before flashing anything, so a bricked unit can be restored.
+- **A real custom-firmware path exists.** Ai-Thinker's open `GPRS_C_SDK` (C, targets the raw
+  RDA8955) and the Logicrom OpenCPU SDK give GPIO, UART, GNSS, GPRS sockets and a filesystem.
+  In principle the V24 can run our own firmware speaking our own protocol. The cost: the board
+  pinout (GNSS UART, solar charger, removal sensor, siren, LEDs, power button) is undocumented
+  and must be traced from the PCB, and vendor power management that gives the 4000 mAh battery
+  its life would have to be re-implemented. Flashing via USB vs the HOST_UART pads is also
+  unverified for this board.
+
+Recommendation: use the USB AT port immediately for diagnosis and provisioning (it costs
+nothing and fixes the SIM problem), keep the vendor firmware, and put customisation on our own
+server (section 4). Revisit custom firmware only if a needed behaviour is missing from the
+command list, and only after a firmware dump exists.
