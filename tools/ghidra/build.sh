@@ -28,7 +28,11 @@ rm -f "$OUT"/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].c 
 
 headless() {  # headless <log> <analyzeHeadless arguments...>
     local log="$1"; shift
-    "$GHIDRA_HOME/support/analyzeHeadless" "$PROJECT" v24 -scriptPath "$SCRIPTS" "$@" > "$log" 2>&1
+    if ! "$GHIDRA_HOME/support/analyzeHeadless" "$PROJECT" v24 -scriptPath "$SCRIPTS" "$@" > "$log" 2>&1; then
+        echo "build failed: Ghidra did not run to the end. Last lines of $log:" >&2
+        tail -5 "$log" >&2
+        exit 1
+    fi
 }
 
 # analyzeHeadless exits 0 even when a script throws, so every script prints
