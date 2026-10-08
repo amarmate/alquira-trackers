@@ -47,17 +47,17 @@ require() {  # require <log> <script name>...
 
 # The whole 4 MiB, not just the code: the code points at tables, settings and
 # factory data that sit well past it, and the packed RAM code is in there too.
-echo "run 1/2: import, memory map and analysis (about 10 minutes)"
+echo "run 1/2: import, memory map, analysis and code fixes (about 10 minutes)"
 headless "$PROJECT/run1.log" -import "$ROOT/firmware/backup/$BACKUP_NAME" \
     -loader BinaryLoader -loader-baseAddr 0x88000000 -loader-blockName flash \
     -processor MIPS:LE:32:default -cspec default \
-    -preScript SetupMemory.java
-require "$PROJECT/run1.log" SetupMemory
+    -preScript SetupMemory.java -postScript FixCode.java
+require "$PROJECT/run1.log" SetupMemory FixCode
 
-echo "run 2/2: re-analysis and export (a few minutes)"
+echo "run 2/2: re-analysis, code fixes and export (a few minutes)"
 headless "$PROJECT/run2.log" -process "$BACKUP_NAME" \
-    -postScript ExportC.java "$OUT"
-require "$PROJECT/run2.log" ExportC
+    -postScript FixCode.java -postScript ExportC.java "$OUT"
+require "$PROJECT/run2.log" FixCode ExportC
 
 echo
 cat "$PROJECT/run1.log" "$PROJECT/run2.log" | sed -n 's/.*V24: \(.*\) (GhidraScript).*/\1/p' | grep -v ' done$'
