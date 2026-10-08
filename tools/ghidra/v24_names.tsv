@@ -6,3 +6,33 @@
 0x88003ebc	boot_LoaderEnter	sdk	copy loops and page-protect calls match the SDK boot_loader.c
 0x8802e16c	hal_DbgPageProtectSetup	sdk	called as in the SDK boot_loader.c: (page, WRITE_TRIGGER, start, end)
 0x8802e1a0	hal_DbgPageProtectEnable	sdk	called after each hal_DbgPageProtectSetup in boot_LoaderEnter
+0x8803968c	tgt_GetHalConfig	sdk	returns 0x8823b300, which boot_LoaderEnter passes to hal_Open; docs/v24-pin-map.md
+0x880396a4	tgt_GetPmdConfig	sdk	returns 0x8823b49c, which decodes as the SDK PMD_CONFIG_T (LDO ids, 4200 mV limits)
+0x82005898	hal_Open	sdk	called by boot_LoaderEnter with tgt_GetHalConfig(), then calls hal_BoardSetup
+0x8200227c	hal_BoardSetup	sdk	stores the config pointer and calls hal_BoardSetupGeneral, as in the SDK hal_config.c
+0x8200202c	hal_BoardSetupGeneral	sdk	pad writes and assert strings match the SDK hal_config.c line for line
+0x8804d7c4	hal_GpioOpen	sdk	"Wrong gpio type"; sets direction and value, then the irq handler and mask from the cfg struct
+0x8804d77c	hal_GpioSetOut	sdk	writes gpio_oen_set_out_l/h (0x01a03004/3c)
+0x8804d734	hal_GpioSetIn	sdk	writes gpio_oen_set_in_l/h (0x01a03008/40)
+0x8804d6e8	hal_GpioGet	sdk	reads gpio_val_l/h (0x01a0300c/44)
+0x81c049a8	hal_GpioSet	sdk	writes gpio_set_l/h (0x01a03010/48); "Trying to use an invalid type of gpio"
+0x81c04950	hal_GpioClr	sdk	writes gpio_clr_l/h (0x01a03014/4c); "Trying to use an invalid type of gpio"
+0x8804d548	hal_GpioIrqSetHandler	sdk	hal_GpioOpen calls it with (gpio, cfg->irqHandler, cfg->irqParam)
+0x8804d5d8	hal_GpioIrqSetMask	sdk	hal_GpioOpen calls it with (gpio, &cfg->irqMask)
+0x8804d590	hal_GpioResetIrq	sdk	one gpio argument, called after hal_GpioIrqSetMask in every sensor eint_clear
+0x820128d8	pmd_EnablePower	sdk	(power id, on); indexes the 8-byte power[] entries of the PMD config
+0x880ecf84	hal_I2cOpen	sdk	"I2C bus ID out of range: %d"; checks i2cUsed/i2c2Used/i2c3Used in the HAL config
+0x880ecf54	hal_I2cClose	sdk	one bus argument, called at the end of every sensor read and write
+0x880ec8f4	hal_I2cSendRawByte	sdk	(bus, byte, command); "I2C resource not active: %d"
+0x880ec79c	hal_I2cReadRawByte	sdk	(bus, command) returning a byte; "I2C resource not active: %d"
+0x8819c714	rfhz_led_status	traced	prints "rfhz_led_status------n=%d---rfhz_led_control_index=%d"
+0x8819c4e0	led_net_set	traced	own name: drives GPIO 27, the LED rfhz_led_status case -1 turns off
+0x8819c3ec	led_gps_set	traced	own name: drives GPIO 4, the LED "GK9501_Gps_Off" (case -2) turns off
+0x881790e4	app_gpio_write	traced	own name: (value, pin) wrapper over hal_GpioSet/hal_GpioClr
+0x88179108	app_gpio_dir	traced	own name: (output, pin) wrapper over hal_GpioSetOut/hal_GpioSetIn
+0x881b030c	sms_gpiotest_handle	traced	own name: handler of the "gpiotest" keyword, atoi(pin), atoi(value)
+0x881b035c	sms_lsn_handle	traced	prints "sms_lsn_handle---LED light keeps on."; drives GPIO 28
+0x8822faf4	open_GPS_power_TD	traced	prints "open_GPS_power_TD"; sets GPIO 32
+0x8822fa84	close_GPS_power_TD	traced	prints "close_GPS_power_TD"; clears GPIO 32
+0x8804b658	gps_uart_open	traced	prints "gps_uart_open"; pads GPIO_0/GPIO_1 to UART1, gpsd_uart_open(1)
+0x8804b5e0	gps_uart_close	traced	prints "gps_uart_close"; pads GPIO_0/GPIO_1 back to GPIO inputs
