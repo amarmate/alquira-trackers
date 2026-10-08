@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md` (read section 11, the planning amendments, first: it corrects section 5).
 
+**Status:** executed on 2026-10-08. The code blocks below are the plan as written; what was built differs where the execution record at the end says so. The scripts in `tools/ghidra/` and spec section 11 are current, this file is history.
+
 ## Global Constraints
 
 - Offline only. Nothing is sent to a tracker and nothing is written to flash.
@@ -1208,3 +1210,36 @@ Expected: all pass.
 git add docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md docs/v24-firmware-analysis.md
 git commit -m "Record the V24 decompile results and what stays unresolved"
 ```
+
+---
+
+## Execution record (2026-10-08)
+
+Executed inline in one session. Tasks 3 to 6 were each verified by a full build of exactly that task's files, run in parallel in scratch trees; the final working-tree build is byte-identical to the scratch build of Task 6.
+
+Final build: 16,300 functions, 685 named plus 38 ROM functions, 3,233 distinct string literals, 0 functions ending in an unrecovered jump table, 0 decompile failures.
+
+Decisions taken during execution, in order. Each ends with what it costs if it is wrong.
+
+- **Setup.** no separate worktree — the build's inputs (firmware/backup, tools/) are untracked files in this working directory and the only branch is claude/gracious-planck-w7hw73 — cost if wrong: commits land on the session branch next to the spec, as the spec commit already did.
+- **Setup.** start implementation without a plan-review stop — the user said "go ahead and start implementation" before the plan existed — cost if wrong: the user reads the plan after the fact; everything is offline and generated output is gitignored.
+- **Task 3.** import the whole 4 MiB flash, not 0x000000–0x290000 as spec section 5 says — 175 pool words in the code point into a pointer table at flash 0x290000 (941 pointers in its first 8 KiB) and 40-odd into the settings and factory areas, all of which dangle with the short import; 0x290000–0x360000 is loaded read-only non-executable (flash_data), 0x360000–0x400000 writable non-executable (flash_store, rewritten at run time) — cost if wrong: analysis spends time on 1.4 MiB of data and may define junk strings there; no code can be created in it.
+- **Task 3.** rom block is read+execute, not writable — it is ROM; the plan's blank() made every blank block writable — cost if wrong: none, the block has no bytes.
+- **Task 3.** verify tasks 3-6 with four parallel builds in scratch trees (each holds that task's exact tools/ghidra state; build.sh derives ROOT from its own location) instead of four sequential builds in the working tree — same script, same input, 12 minutes instead of 45 — cost if wrong: a scratch-tree result could differ from a working-tree build; Task 7's reproducibility check compares the two.
+- **Task 3.** ExportC passes DecompileOptions to the decompiler — plan defect: without options the decompiler ignores read-only memory, so even with flash read-only every string came out as PTR_s_… (0 literals in the scratch preview, 3052 with options) — cost if wrong: none, these are Ghidra's GUI defaults.
+- **Task 3.** the packed-RAM and ROM gaps are reported by ExportC as "called functions with no code behind them" per block, not by the metrics script's func_0x count — Ghidra creates stub functions at call targets in blocks without bytes, so those calls no longer render as func_0x… — cost if wrong: none; the stubs appear in index.tsv with size 0 and can be named.
+- **Task 3.** build.sh header says 15 minutes, not 25 — measured: run 1 is 9 min, run 2 under 2 min in the control build.
+- **Task 6.** the log-string rule allows leading whitespace before the identifier — "\n set_url_port.url:%s" is how this firmware writes many log lines, and the spec's own spot check name was missed without it — cost if wrong: a few more names from strings that merely mention an identifier first.
+- **Task 6.** a ROM symbol that the firmware references as data (g_BootHostUsbFixPtr) gets a label, not a function — createFunction throws on defined data — cost if wrong: none.
+- **Task 3.** SetupMemory table corrected to the boot loader's code — adds sram_irq, splits sram_boot at 0x81c01f00 into text and data, makes sram_boot and ram_boot read-only — the plan's table was read from raw pool words; plan step 4 says to correct it from the code — cost if wrong: a mutable global in a block marked read-only would be shown as a constant.
+- **Task 3.** flash from 0x238720 is data (flash_data to 0x362000 read-only, flash_store beyond writable) — flash code ends at 0x238704 (last return idiom at 0x2386bc, pool to 0x238704); with the string tables executable Ghidra's own analysis created junk functions there (0x8824ab68, 0x88256558, ...) — cost if wrong: code past 0x238720 would only be found through calls (the segment locator at 0x882d7750 is, and was).
+- **Task 3.** unpack the three LZMA segments in SetupMemory and load them at 0x8201d5e0, 0x82050260 and 0x820eab40 as read-only executable blocks — spec section 9 says to load the result if a small script unpacks it; the plan deferred it to a later plan before the facts were in. Evidence: the loaders at flash 0x1620a4/0x162108/0x162170 name source, destination and length; each segment has a standard .lzma header whose length field matches; Python's lzma and Ghidra's bundled org.tukaani.xz both unpack to exactly those lengths; 155 of the 209 old call targets land on addiu sp,-N; the SDK linker script puts only .text and .rodata in these sections. Unverified: the firmware's own checksum over each segment (function at 0x880439c4, algorithm not identified) — cost if wrong: none found; a wrong unpack would not produce prologues at call targets.
+- **Task 5.** mips16Prologue also requires the matching epilogue (jr a3 with addiu sp,+N in the delay slot, within 8 KiB) — the plan's rule matched 8 places in the string tables; the full idiom matches none and keeps 9727 of 9871 matches in code — cost if wrong: about 1.5% of non-leaf functions reached only by pointer are left to other discovery.
+- **Task 5.** FixCode clears a word-sized data definition that sits exactly on a function start, and creates functions at direct call targets that have no code — Ghidra typed the first four bytes of 31 real functions as pointers, and defined data at 0x81c01f80 (called twice) because the boot loader writes there — cost if wrong: a real 4-byte datum at an address that also passes the prologue test or is a direct call target would be turned into code.
+- **Task 5.** FixCode also makes a function of every run of disassembled code that no function covers and that nothing falls or jumps into — 106,710 instruction bytes (1,130 runs) were outside every function in the preview and so absent from the export; most start with a prologue whose epilogue releases the frame in two steps, which the strict prologue rule rejects; the step created 1,045 functions and left 6,118 bytes — cost if wrong: if Ghidra had mis-disassembled data, it now shows up as a junk function instead of staying invisible; unrecovered jump tables would be split into fragments, but the preview has none (0 bodies with UNRECOVERED_JUMPTABLE).
+- **Task 3.** metrics region renamed ram_packed -> ram_overlay (0x8201d5e0-0x82101e80), and names Ghidra makes up (caseD_1, thunk_EXT_FUN_...) no longer count as named — both test-first (RED then GREEN) — cost if wrong: none.
+- **Task 6.** v24_names.tsv starts with four rows, not one — boot_LoaderEnter, hal_DbgPageProtectSetup and hal_DbgPageProtectEnable were identified against the SDK's boot_loader.c while checking the memory map — cost if wrong: three wrong names, each with its evidence in the row.
+- **Task 7.** SDK name matching is not started, although 107 of the 202 callees of sms_*_handle are unnamed (53%, just over the plan's one-half trigger) — 106 unnamed callees appear in the handlers' bodies, one (0x881b9304, the log printf) is called by all 128 handlers, 74 by exactly one handler, and nearly all sit at 0x881a....-0x881b...., the vendor's application code, which the public RDA SDK does not contain; SDK matching would name platform functions, not these — cost if wrong: platform callees stay FUN_... until sub-project B names them by hand or a later plan matches the SDK.
+- **Task 7.** step 2's "unpacking gets its own short plan" is void — done in Task 3 (see that ruling).
+
+Not done, by decision: SDK name matching (see the Task 7 decision above).
