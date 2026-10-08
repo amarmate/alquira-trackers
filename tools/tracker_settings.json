@@ -1,0 +1,209 @@
+{
+  "firmware": "R36S_RFHZ_V34_V1.0_2024.09.28_16.06.24",
+  "notes": "Command syntax from the vendor protocol doc and default_config.txt. 'verified' = tested live over USB on this build. 'noAck' = the firmware runs it but answers in the log or to the server, never with AT RETURN. Every keyword here is present in this build's parser table. Fields: 'from' names the ts/getapn value that pre-fills it. Left out on purpose: tsext prints its reply and then reboots this build (pwon_count 17 to 18, no AT RETURN). presets is a list of named setups; each step names a setting id and the field values to write. Add another object there to get another button. A setting with reboot true makes the page wait for USB to return before the next step.",
+  "keywords": "ki lk tkq simpopup factory recovery reset lz lang zone ip ntpservers agpsservers ntpservers2 agpsservers2 upload verno imei pw center slave sos sos1 sos2 sos3 where 123 dw ts tsext querynet readhyid tt imsi spn monitor smsonoff upgrade apn any netdebug gsmant gpsant displaytime debugclose showimei lowbat sossms call sms rad cr rg sjtcconnect time date sup1 sup2 calltest smstest gpstest worktime work sleeptime walktime silencetime silencetime2 SMSCENTER poweroff shutdown record remove appurl getappurl removesms find kpe remind drinkremind spof fixtype message flower whitelist1 whitelist2 acall phb phb2 phb3 longpresstime timecali posdl lt threekey setlcdid setbl setvl cameraswitch getlcdid delfile dateformat timeformat tkonoff phbonoff charpoweron aa acallswitch acalltime setptype poup TY cleanfnv getapn applock getpwringonoff getssc rcapture rcaptures camera cameradire dialer flashlight watchverno screensave disabletp math setpingbao displaywifi hfcx devmessageswitch getcxm mpsn mbsn pcmway flashread tpinit tpreset closelink iccid wifitest wifisleep snid tk tk2 appcontact appcontactdel appcontactname appcontacticon appvoicemsg srvtextmsg ppfriends ppfriendsname ppfriendsicon ppsrvvoicemsg ppfrienddel wechat ec cfs cfw cfw2 rsf rsf2 replacett configapn setdeki getdeki profile profile_onoff vibration simunbound gsensortest pedostart pedostop pedoreset test7a20 token cnumber attachgprs gpson gpsoff aswoff aswon agpsdl sendagps sendgpstime sendgpstime1 agpsupdate agpstype closemotion em7128st em7128sp lightstart lightsensor opendisk takepills medicinemode theme ctpclear hyctpclear wechatsub wechaturl ipdurl ecardtime remotecamera monitormode devrefusephoneswitch BTWARNSET BTTIMESET GETBTTIMESET dnd mod ans lsn wififence wifiShow rfhzledtest linktime hon von vibalarestimr gpiotest sensor getstep moveval pedo steponoff setverno falldownonoff falldown lsset menurecharge hebloxy menusetting gotomenu_sktest menuservice numberadd definekey secondkeynum keymod url reboot gprsgps m8support geteicard gsmsignal autoreset agpstime getagpstime temperature mSensitivity tkq2 config wt upid gkid UPTOKEN CXWLWORDERGET CXWLWAWNICCID",
+  "presets": [
+    {
+      "id": "vodafone-sme",
+      "label": "Vodafone SME",
+      "help": "The setup that works on these IoT SIMs: APN sme.vodafone.iot with no user or password, home network 90128, and the vendor server. The tracker reboots after the APN; the server is written once USB is back.",
+      "confirm": "Write the Vodafone SME APN and the vendor server? The tracker reboots after the APN.",
+      "steps": [
+        {"setting": "apn", "values": {"apn": "sme.vodafone.iot", "user": "", "pass": "", "mccmnc": "90128"}},
+        {"setting": "ip", "values": {"host": "47.106.163.223", "port": "8888"}}
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "Network and server",
+      "settings": [
+        {
+          "id": "apn", "label": "APN", "verified": true, "reboot": true,
+          "help": "Data network the SIM uses. MCCMNC is the SIM's home network from its IMSI (90128 for the Vodafone IoT SIM). The tracker reboots after saving.",
+          "command": "apn,{apn},{user},{pass},{mccmnc}",
+          "fields": [
+            {"name": "apn", "label": "APN", "from": "apn", "pattern": "^[A-Za-z0-9.-]{1,31}$"},
+            {"name": "user", "label": "User", "from": "apn_user", "pattern": "^[A-Za-z0-9._@-]{0,31}$", "optional": true},
+            {"name": "pass", "label": "Password", "from": "apn_pass", "pattern": "^[A-Za-z0-9._@-]{0,31}$", "optional": true},
+            {"name": "mccmnc", "label": "MCCMNC", "from": "apn_mccmnc", "pattern": "^[0-9]{5,6}$"}
+          ]
+        },
+        {
+          "id": "ip", "label": "Server", "verified": true,
+          "help": "Platform the tracker reports to. Use the IP rather than the hostname on private APNs. Vendor: 47.106.163.223 port 8888.",
+          "command": "ip,{host},{port}",
+          "fields": [
+            {"name": "host", "label": "Host or IP", "from": "ip_url", "pattern": "^[A-Za-z0-9.-]{1,63}$"},
+            {"name": "port", "label": "Port", "from": "port", "type": "number", "min": 1, "max": 65535}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reporting",
+      "settings": [
+        {
+          "id": "upload", "label": "Upload interval", "verified": true,
+          "help": "Seconds between position reports. Vendor recommends 600; 60 only while searching for an animal, it drains the battery.",
+          "command": "upload,{seconds}",
+          "fields": [{"name": "seconds", "label": "Seconds", "from": "upload", "type": "number", "min": 10, "max": 86400}]
+        },
+        {
+          "id": "gprsgps", "label": "Data and GPS", "verified": false,
+          "help": "Off puts the tracker in deep sleep: no data, no GPS, so the platform cannot reach it. USB still works.",
+          "command": "gprsgps,{on}",
+          "confirm": "With data off the platform can no longer reach this tracker. Continue?",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["1", "On"], ["0", "Off (deep sleep)"]]}]
+        },
+        {
+          "id": "autoreset", "label": "Automatic reboot", "verified": false,
+          "help": "Factory default is on, every 1440 minutes (daily).",
+          "command": "autoreset,{on},{minutes}",
+          "fields": [
+            {"name": "on", "label": "State", "type": "select", "options": [["1", "On"], ["0", "Off"]]},
+            {"name": "minutes", "label": "Every (minutes)", "type": "number", "min": 60, "max": 10080, "default": "1440"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phone numbers and access",
+      "settings": [
+        {
+          "id": "center", "label": "Center number", "verified": false,
+          "help": "The phone that sends SMS commands. Needs an SMS-capable SIM in the tracker to matter.",
+          "command": "center,{phone}",
+          "fields": [{"name": "phone", "label": "Phone", "from": "center", "pattern": "^\\+?[0-9]{3,20}$"}]
+        },
+        {
+          "id": "slave", "label": "Assistant number", "verified": false,
+          "command": "slave,{phone}",
+          "fields": [{"name": "phone", "label": "Phone", "from": "slave", "pattern": "^\\+?[0-9]{3,20}$"}]
+        },
+        {
+          "id": "sos", "label": "SOS numbers", "verified": false,
+          "help": "Up to three numbers alerted on an SOS alarm.",
+          "command": "sos,{sos1},{sos2},{sos3}",
+          "fields": [
+            {"name": "sos1", "label": "SOS 1", "from": "sos1", "pattern": "^\\+?[0-9]{3,20}$", "optional": true},
+            {"name": "sos2", "label": "SOS 2", "from": "sos2", "pattern": "^\\+?[0-9]{3,20}$", "optional": true},
+            {"name": "sos3", "label": "SOS 3", "from": "sos3", "pattern": "^\\+?[0-9]{3,20}$", "optional": true}
+          ]
+        },
+        {
+          "id": "pw", "label": "SMS password", "verified": false,
+          "help": "Six digits. Default 123456.",
+          "command": "pw,{password}",
+          "confirm": "Write the new password down first. Continue?",
+          "fields": [{"name": "password", "label": "New password", "pattern": "^[0-9]{6}$"}]
+        },
+        {
+          "id": "any", "label": "Who may send SMS commands", "verified": false,
+          "command": "any,{on}",
+          "fields": [{"name": "on", "label": "Senders", "type": "select", "options": [["0", "Center and assistant only"], ["1", "Anyone with the password"]]}]
+        },
+        {
+          "id": "dnd", "label": "Do not disturb", "verified": false,
+          "help": "On: only center and SOS numbers may call the tracker.",
+          "command": "dnd,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["0", "Off"], ["1", "On"]]}]
+        }
+      ]
+    },
+    {
+      "name": "Alarms",
+      "settings": [
+        {
+          "id": "remove", "label": "Removal alarm", "verified": false,
+          "help": "Factory default is off. The sensor arms 3 minutes after power on.",
+          "command": "remove,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["0", "Off"], ["1", "On"]]}]
+        },
+        {
+          "id": "von", "label": "Vibration alarm", "verified": false,
+          "command": "von,{level}",
+          "fields": [{"name": "level", "label": "Sensitivity", "type": "select", "options": [["0", "Off"], ["1", "1 (most sensitive)"], ["2", "2"], ["3", "3"], ["4", "4 (least sensitive)"]]}]
+        },
+        {
+          "id": "mod", "label": "Alarm delivery", "verified": false,
+          "command": "mod,{mode}",
+          "fields": [{"name": "mode", "label": "Mode", "type": "select", "options": [["0", "Server only"], ["1", "Server, SMS and call"], ["2", "Server and call"], ["3", "Server and SMS"]]}]
+        },
+        {
+          "id": "hon", "label": "Local siren on alarm", "verified": false,
+          "command": "hon,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["1", "On"], ["0", "Off"]]}]
+        },
+        {
+          "id": "lowbat", "label": "Low battery SMS", "verified": false,
+          "command": "lowbat,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["1", "On"], ["0", "Off"]]}]
+        },
+        {
+          "id": "removesms", "label": "Removal alarm SMS", "verified": false,
+          "command": "removesms,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["0", "Off"], ["1", "On"]]}]
+        },
+        {
+          "id": "sossms", "label": "SOS alarm SMS", "verified": false,
+          "command": "sossms,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["0", "Off"], ["1", "On"]]}]
+        },
+        {
+          "id": "smsonoff", "label": "All SMS alerts", "verified": false,
+          "command": "smsonoff,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["0", "Off"], ["1", "On"]]}]
+        }
+      ]
+    },
+    {
+      "name": "Device",
+      "settings": [
+        {
+          "id": "lz", "label": "Language and time zone", "verified": false,
+          "help": "Factory default is UTC+8 (China). Portugal is 0 in winter, 1 in summer.",
+          "command": "lz,{lang},{zone}",
+          "fields": [
+            {"name": "lang", "label": "Language", "from": "language", "type": "select", "options": [["0", "English"], ["1", "Chinese"]]},
+            {"name": "zone", "label": "UTC offset", "from": "zone", "pattern": "^-?[0-9]{1,2}(\\.[0-9]{1,2})?$"}
+          ]
+        },
+        {
+          "id": "lsn", "label": "White LED", "verified": false,
+          "command": "lsn,{mode}",
+          "fields": [{"name": "mode", "label": "Mode", "type": "select", "options": [["0", "Off"], ["1", "Flashing"], ["2", "Always on"]]}]
+        },
+        {
+          "id": "pedo", "label": "Step counter", "verified": false,
+          "command": "pedo,{on}",
+          "fields": [{"name": "on", "label": "State", "type": "select", "options": [["0", "Off"], ["1", "On"]]}]
+        }
+      ]
+    },
+    {
+      "name": "Queries and actions",
+      "settings": [
+        {"id": "ts", "label": "Status", "verified": true, "command": "ts", "help": "Firmware, server, numbers, interval, time zone, network."},
+        {"id": "getapn", "label": "Read APN", "verified": true, "command": "getapn"},
+        {"id": "querynet", "label": "Network info", "verified": true, "noAck": true, "command": "querynet", "help": "Logs IMSI, PLMN and data attach state."},
+        {"id": "verno", "label": "Firmware version", "verified": true, "command": "verno"},
+        {"id": "iccid", "label": "SIM ICCID", "verified": true, "noAck": true, "command": "iccid", "help": "Look for read_iccid in the log."},
+        {"id": "imsi", "label": "SIM IMSI", "verified": true, "command": "imsi"},
+        {"id": "gsmsignal", "label": "GSM signal", "verified": true, "noAck": true, "command": "gsmsignal", "help": "Answers to the server; the log shows gsmsignal,<0-100>."},
+        {"id": "where", "label": "Position", "verified": false, "command": "where"},
+        {"id": "cr", "label": "Force GPS fix", "verified": false, "command": "cr", "help": "Wakes GPS and uploads every 30 s for 3 minutes."},
+        {"id": "find", "label": "Ring the tracker", "verified": false, "command": "find"}
+      ]
+    },
+    {
+      "name": "Power",
+      "danger": true,
+      "settings": [
+        {"id": "reset", "label": "Reboot", "verified": true, "command": "reset", "confirm": "Reboot the tracker? USB drops and comes back in about 30 seconds."},
+        {"id": "poweroff", "label": "Power off", "verified": false, "command": "poweroff", "confirm": "Power the tracker off? You will need the button to turn it back on."},
+        {"id": "factory", "label": "Factory reset", "verified": false, "command": "factory", "confirm": "Factory reset sets the APN back to Tele2 and the time zone to UTC+8. You must re-send APN and server afterwards. Continue?"}
+      ]
+    }
+  ]
+}

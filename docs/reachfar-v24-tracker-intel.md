@@ -16,7 +16,9 @@ Our deployment context:
 | Vendor server port | `8888` (TCP) |
 | Vendor web platform | `www.gps123.org` |
 | Vendor app | "Anytracking" (App Store / Play), login = device ID, password `123456` |
-| SIMs | Vodafone SME IoT (data only: no SMS, no voice) |
+| SIMs | Vodafone SME IoT (data only: no SMS, no voice). SPN reads `DATA ONLY` |
+| SIM home network | IMSI `90128...`: Vodafone global IoT (MCC `901`), **not** `26801`. In Portugal it roams on Vodafone PT |
+| SIM APN | `sme.vodafone.iot`, no user/password (confirmed by Vodafone) |
 | Country / operator codes | Portugal MCC `268`. Vodafone MNC `01`, NOS `03`, MEO `06` |
 
 ---
@@ -69,7 +71,8 @@ Additional hard requirements:
 
 **Vodafone SME IoT SIMs have no SMS.** That means: while a Vodafone IoT SIM is inside the tracker,
 every SMS you send to it is silently dropped by the network. Nothing you type on your phone reaches
-the device. The only way to control the tracker with that SIM inside is through the server channel.
+the device. The server channel provides remote control. **Local USB configuration also works**
+with that SIM installed: see section 6 and [the firmware investigation](v24-firmware-analysis.md#9-working-native-usb-configuration).
 
 ---
 
@@ -233,8 +236,17 @@ Minimal server behaviour to keep a device alive and reporting:
 
 ## 6. Setup procedure for the Vodafone SME IoT SIMs
 
-Because the IoT SIM cannot receive SMS, configure each tracker with a **staging SIM** (any
-consumer SIM that does SMS, with PIN disabled and 2G coverage) and then swap in the IoT SIM.
+**Preferred local setup: USB, verified 2026-10-02.** Leave the IoT SIM installed and the
+tracker powered on. Interface 1 of `1782:3d00` accepts `AT:apn,sme.vodafone.iot,,,90128#`
+followed by CR, then, after its automatic reboot, `AT:ip,47.106.163.223,8888#` followed
+by CR. Use [tools/rda_config.py](../tools/rda_config.py), which sends each command in one
+transfer, records the reply and checks its acknowledgement. Read back with `AT:getapn#`
+and `AT:ts#`. The APN survived reboot, data activation succeeded and the device connected
+to the vendor server. See [full commands and evidence](v24-firmware-analysis.md#9-working-native-usb-configuration).
+For every other setting, use the local settings page `tools/tracker_ui.py`
+(see [section 10 of the firmware notes](v24-firmware-analysis.md#10-settings-ui)).
+
+The SMS/staging-SIM procedure below remains an alternative for units where USB is unavailable.
 All settings live in the tracker, not in the SIM, so they survive the swap.
 
 ### Step 0: check the Vodafone IoT portal once
@@ -267,9 +279,14 @@ All settings live in the tracker, not in the SIM, so they survive the swap.
 
 Still with the staging SIM inside, send:
 
-- `pw,123456,apn,sme.vodafone.iot,,,26801#`  (use the exact APN from the portal; add user/password
-  between the commas if the portal lists them)
+- `pw,123456,apn,sme.vodafone.iot,,,90128#`
+  The last field is the **SIM's home network from its IMSI** (`90128`), not the Portuguese network
+  it roams on (`26801`). The firmware's own APN table follows the same rule (1NCE is listed as
+  `90140`, Tele2 IoT as `24007`).
 - `pw,123456,ip,47.106.163.223,8888#`  (IP, not FQDN, to avoid DNS issues on the private APN)
+
+Each command should get a `Set apn,... is successful` style SMS reply. With the tracker on USB,
+`tools/rda_log.py` also shows `sms_apn_handle.apn:...` when the command lands.
 
 Caveat **(unverified)**: the firmware may hold only one APN, in which case the tracker loses data
 on the staging SIM after this step. That is fine, SMS still works; do this as the last step.
@@ -320,6 +337,30 @@ Then the Vodafone IoT SIM was inserted and "it doesn't work".
 5. **Unknowns to confirm in the Vodafone portal**: exact APN string, 2G enabled on the plan,
    whitelist covering the IP as well as the FQDN, and whether DNS is allowed.
 
+### Confirmed root cause (2026-10-02, live USB log, unit `1403167417`, Vodafone IoT SIM inside)
+
+```
+read_imsi.901280021272480,
+gprs_state_check plmn:90128.nMNCLen=2          SIM is Vodafone global IoT
+---is_gprs_ready ... is_gprs_attached=1        2G attach works, roaming works
+gprs_state_check apn:m2m.tele2.com plmn:24007. tracker still uses the factory APN
+----active_gprs_rsp is_gprs_ready=nResult=241 nCid=1
+active_gprs_rsp error                          Vodafone rejects the data session, every retry
+soc_gethostbynameExt ret_val=-1,ip_url:a.igps123.com   DNS fails because there is no data session
+```
+
+The SIM, the radio, roaming and Vodafone's side are fine. The **tracker** never received the APN,
+so it asks Vodafone for `m2m.tele2.com`. Vodafone's DNS/whitelist theory is a symptom: no PDP
+context means no DNS at all. After enough failures the tracker reboots itself (`pwon_count`
+increments), which also drops the USB connection.
+
+**Resolved over USB on 2026-10-02:** `AT:apn,sme.vodafone.iot,,,90128#\r`, then
+`AT:ip,47.106.163.223,8888#\r`. A staging SIM was not required. The initial USB probes failed
+because they omitted `AT:`; the earlier conclusion that USB could not configure the APN
+was incorrect. The general command parser is reachable through the normal USB data port.
+Success in the log is `active_gprs_rsp` **without** `error`, followed by a socket to
+`47.106.163.223:8888`.
+
 ---
 
 ## 8. Troubleshooting matrix
@@ -329,6 +370,8 @@ Then the Vodafone IoT SIM was inserted and "it doesn't work".
 | Red LED slow flash forever | SIM PIN, SIM not active, no 2G on plan or at site | disable PIN, portal state, try the SIM in a 2G phone at the farm |
 | Red fast flash, no SMS reply (staging SIM) | wrong tracker number, SMS centre, commands with spaces/uppercase | resend exactly, lowercase, wait 1 min |
 | Red fast flash, SMS ok, app says Not enabled / offline | APN wrong, no data, server blocked | `ts#`, fix `apn` command, portal session log, whitelist |
+| USB log: `active_gprs_rsp error` | tracker's APN is not the SIM's APN | re-send `apn,...,<IMSI MCCMNC>#` (section 7) |
+| USB log: `gethostbyname ret_val=-1` | no data session (see above), or DNS blocked | fix the APN first; then use the IP, not the FQDN |
 | Device online, app says "wait for the device responses" | weak signal or device busy | wait and retry |
 | Position always `V` / jumping | indoors or under roof, LBS/WiFi fallback | expected; GPS needs sky. Filter LBS in the app |
 | Removal alarms when handling | removal sensor active 3 min after power on | expected |

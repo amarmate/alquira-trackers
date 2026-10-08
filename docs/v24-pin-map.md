@@ -4,10 +4,11 @@ Which RDA8955 pin does what on the V24 board, read from the 2026-10-03 flash bac
 `1403167417`. This is the input a replacement firmware needs.
 
 **Status, 2026-10-08:** the map comes from the firmware image and five photos of the opened
-unit. One read of the pad and GPIO registers on the live unit, taken while it was off on the
-cable, agrees with every line that the boot code sets up (section 7). The lines that only the
-tracker application sets up, and which physical part hangs on each pin, are not confirmed:
-no pin has been toggled yet. Function addresses refer to the decompile described in
+unit. Two reads of the pad and GPIO registers on the live unit agree with it (section 7): one
+taken while it was off on the cable, for the lines the boot code sets up, and one taken after
+the power key started the tracker application, for the lines the application sets up. Which
+LED is on which pin is not confirmed: no pin has been driven on request yet. Function
+addresses refer to the decompile described in
 [the firmware analysis](v24-firmware-analysis.md), section 11.
 
 ## 1. How the pins were found
@@ -117,8 +118,8 @@ case -2, and case -2 switches off GPIO 4. Case -1 switches off GPIO 27.
 
 `tools/rda_pin_state.py` read the 37 pad registers, the GPIO direction and level registers
 and RAM `0x82239eb8` from unit `1403167417`: one pass, read-only, no flash access beyond the
-1 KiB that identifies the unit. The unit was off on the cable (USB `1e04:0900`), which is the
-only state that has a read path. Log: `firmware/live/2026-10-08-pin-state.jsonl` (not in git).
+1 KiB that identifies the unit. The unit was off on the cable (USB `1e04:0900`).
+Log: `firmware/live/2026-10-08-pin-state.jsonl` (not in git).
 
 | Pad | Register | Reads as | Against section 2 |
 |---|---|---|---|
@@ -147,13 +148,43 @@ still hold their reset value, and RAM `0x82239eb8` read 0, the value before any
 accelerometer driver has matched. My reading is that "off on the cable" means the platform
 is up and the tracker application has not set up its pins.
 
-Two consequences:
+One consequence: the GPS power pin is high in this state. If high = on is right, the GPS is
+powered whenever the unit sits off on the cable.
 
-- The GPS power pin is high in this state. If high = on is right, the GPS is powered
-  whenever the unit sits off on the cable.
-- A register read cannot confirm the application's pins (red LED, GPIO 31, the WiFi and
-  accelerometer interrupts): when the unit is switched on, USB changes to `1782:3d00`,
-  which has no read path.
+**Second read, application running.** With the unit still on the cable, a long press of the
+power key gave one long beep and the SIM and GPS LEDs came on. USB stayed `1e04:0900`, so the
+same read worked. What makes the unit enumerate as `1782:3d00` instead is not traced; it was
+in that mode, powered on, on 2026-10-02 and 2026-10-03, until it was powered off and reconnected.
+Log: `firmware/live/2026-10-08-pin-state-after-power-key.jsonl`. Everything not listed here
+read the same as before.
+
+| Pad | Off on the cable | Application running | Against section 2 |
+|---|---|---|---|
+| `KEYIN_2` | `0x0`, key input | `0x10201`: GPIO 27 with pull-up, output | agrees |
+| `KEYOUT_1` | `0x0`, key line | `0x10201`: GPIO 31 with pull-up, input, level 1 | agrees |
+| `KEYIN_4` | `0x0`, key line | `0x1`: GPIO 29, input, level 0 | agrees |
+| `KEYOUT_4` | `0x0`, key line | `0x1`: GPIO 34, input, level 0 | agrees |
+| `KEYOUT_2` | GPIO 32, high | GPIO 32, low | GPS power off; the GPS UART pads were still GPIO inputs |
+| `GPIO_1` | input, level 1 | input, level 0 | fell together with GPIO 32 |
+| `GPIO_2` | input, level 0 | input, level 1 | the removal sensor's interrupt line now idles high |
+| RAM `0x82239eb8` | 0 | 3 | SC7A20, as in the trace |
+
+So the pin set-up routine at `0x881ab498` has run, and the application's pads are what
+section 2 says. `GPIO_1` following GPIO 32 down fits GPIO 32 high = GPS on: my reading is
+that the powered GPS module was holding its receive line high.
+
+A 30 s poll of the two GPIO level words in the same state (about 130 samples a second, log
+`firmware/live/2026-10-08-led-sample.jsonl`) showed:
+
+- GPIO 4 and GPIO 27 switch together, 1 s high and 1 s low, for the whole 30 s. These are the
+  two LEDs the user saw. Because they switch in step, this does not say which is which, and
+  a blink does not show the polarity either.
+- GPIO 28 stayed low, and GPIO 32 stayed low: the GPS was not powered at any point.
+- GPIO 2 and GPIO 31 stayed high.
+
+Not explained: the user saw the GPS LED alone before the key press, in the state where the
+first read found GPIO 4 low and `KEYIN_2` not yet a GPIO. One read is one instant, so the LED
+may have been blinking, or something other than these two pins lights it.
 
 Direction bits, for the record: GPIO 3, 6, 7, 8 and 35 are outputs because the board table's
 not-connected mask (`0x1c8`, table offset `0x68`) is written to both halves of the direction
@@ -161,12 +192,27 @@ register; 28 and 32 come from the platform start-up. GPIO 4, 14 and 27 are also 
 set them in this state is not traced. The LED pads are written with `0xd0201` and read back
 `0x10201`: the two drive-strength bits do not read back.
 
-**Still to do, with the unit switched on: `gpiotest`.** The vendor firmware has a command
+**`gpiotest`, with the unit in `1782:3d00` mode.** The vendor firmware has a command
 `gpiotest,<pin>,<0|1>` (`sms_gpiotest_handle`, `0x881b030c`) in the same dispatcher as `apn`
-and `lsn`. It makes a GPIO an output and drives it until reboot, for pins 0 to 32.
-`tools/rda_config.py gpio-test --pin 28 --level 1` sends it as `AT:gpiotest,28,1#`, and
-accepts only the three LED pins. Watching which LED lights for pins 4, 27 and 28 settles the
-LED colours. It has not been sent to a unit yet, so the reply it gives is not known.
+and `lsn`. It makes a GPIO an output and writes the level once, for pins 0 to 32; the level
+holds until something else writes the pin. `tools/rda_config.py gpio-test --pin 28 --level 1`
+sends it as `AT:gpiotest,28,1#`, and accepts only the three LED pins.
+
+About a minute after the user was asked to unplug and replug the cable with the application
+running, the unit enumerated as `1782:3d00`. In that mode the log shows the GPS powered
+(`GK9501_Gps_On`, NMEA sentences, `rfhz_led_status` case 12).
+
+- **Pin 28, level 1: sent once, 2026-10-08.** The firmware logged `gpiotest` and answered
+  `AT RETURN:gpiotest.` (log `firmware/live/2026-10-08-gpiotest-28-on.raw`). The user, who was
+  watching for a third LED, reported "LED is working properly"; which LED lit and its colour
+  are still to be written down. The battery figure in the status line fell from 95 to 89
+  within seconds of the command, which fits a load switching on but is not proof by itself.
+- **Pin 28, level 0: sent once, a few minutes later.** Same acknowledgement (log
+  `firmware/live/2026-10-08-gpiotest-28-off.raw`). The battery figure rose from 89 to 91
+  over the next seconds. Whether the LED went dark has not been reported yet.
+- **Pins 4 and 27: not sent.** Their blink timers (ids `0x1ae` for GPIO 4, `0x1ad` for
+  GPIO 27, set up by `0x8819c67c`) write the pin at every step, so a forced level lasts only
+  until the next step. It can tell the two LEDs apart only while that LED is steady.
 
 ## 8. Fit with Logicrom
 

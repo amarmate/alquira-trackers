@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracker Settings</title>
+<style>
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --ink: #1d1f1c; --muted: #595d56; --line: #dfe0da;
+  --accent: #2f6b4f; --accent-ink: #ffffff; --ok: #2f7a3e; --bad: #b3261e; --warn-bg: #fff4d6;
+  --code-bg: #f0f0eb; --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151714; --panel: #1d201c; --ink: #e6e7e2; --muted: #9a9e95; --line: #2e322c;
+    --accent: #6fbf8f; --accent-ink: #10130f; --ok: #79c98a; --bad: #f2867c; --warn-bg: #3a3220;
+    --code-bg: #232720;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center;
+  flex-wrap: wrap; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 15px; margin: 0 8px 0 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; }
+.dot.on { background: var(--ok); }
+#conn { color: var(--muted); }
+#fw { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+header .spacer { flex: 1; }
+#banner { display: none; margin: 12px 16px 0; padding: 10px 12px; border-radius: 6px;
+  background: var(--warn-bg); border: 1px solid var(--line); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: 16px; padding: 16px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  margin: 18px 0 8px; }
+h2:first-child { margin-top: 0; }
+.danger h2 { color: var(--bad); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 8px; }
+.card .title { display: flex; gap: 8px; align-items: baseline; }
+.card .title b { font-weight: 600; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.badge.verified { color: var(--ok); border-color: var(--ok); }
+.help { color: var(--muted); margin: 2px 0 8px; font-size: 13px; }
+.fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; min-width: 0; }
+input { width: 170px; }
+input[type=number] { width: 110px; }
+input.invalid { border-color: var(--bad); }
+button { font: inherit; cursor: pointer; border-radius: 6px; padding: 6px 12px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+button.bad { background: #9c1c16; border-color: #9c1c16; color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+.foot { display: flex; gap: 10px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.preview { font-family: var(--mono); font-size: 12px; background: var(--code-bg); padding: 4px 8px;
+  border-radius: 4px; overflow-wrap: anywhere; }
+.result { font-size: 13px; }
+.result.ok { color: var(--ok); }
+.result.bad { color: var(--bad); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (min-width: 901px) { aside { position: sticky; top: 64px; height: calc(100vh - 80px); } }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+  display: flex; flex-direction: column; min-height: 0; }
+.pane.grow { flex: 1; }
+.pane .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+.pane .bar b { color: var(--ink); font-size: 13px; margin-right: auto; }
+pre { margin: 0; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere;
+  overflow: auto; background: var(--code-bg); border-radius: 6px; padding: 10px 12px; }
+#replies { max-height: 260px; min-height: 80px; }
+#log { flex: 1; min-height: 200px; max-height: 60vh; }
+@media (min-width: 901px) { #log { max-height: none; } }
+#console { display: flex; gap: 6px; margin-bottom: 6px; }
+#console input { flex: 1; width: auto; font-family: var(--mono); }
+dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink);
+  max-width: min(420px, calc(100vw - 32px)); }
+dialog { padding: 16px 20px; }
+dialog p.preview { display: block; padding: 10px 12px; white-space: pre-wrap; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog .foot { justify-content: flex-end; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tracker settings</h1>
+  <span class="dot" id="dot"></span><span id="conn">Connecting…</span>
+  <span id="fw"></span>
+  <span class="spacer"></span>
+  <button id="readBtn">Read from tracker</button>
+</header>
+<div id="banner"></div>
+<main>
+  <section id="settings"></section>
+  <aside>
+    <div class="pane">
+      <div class="bar"><b>Command console</b></div>
+      <form id="console">
+        <input id="cmd" list="keywords" placeholder="e.g. ts or upload,600 (no # needed)" autocomplete="off" spellcheck="false">
+        <button>Send</button>
+      </form>
+      <datalist id="keywords"></datalist>
+      <div class="bar"><b>Replies</b><button class="ghost" id="clearReplies" type="button">Clear</button></div>
+      <pre id="replies"></pre>
+    </div>
+    <div class="pane grow">
+      <div class="bar"><b>Live log</b>
+        <label style="flex-direction:row;gap:4px"><input type="checkbox" id="quiet" checked style="width:auto">Hide periodic lines</label>
+        <label style="flex-direction:row;gap:4px"><input type="checkbox" id="follow" checked style="width:auto">Follow</label>
+      </div>
+      <pre id="log"></pre>
+    </div>
+  </aside>
+</main>
+<dialog id="confirm">
+  <p id="confirmText"></p>
+  <p class="preview" id="confirmCmd"></p>
+  <div class="foot"><button class="ghost" value="no" id="confirmNo">Cancel</button><button class="bad" id="confirmYes">Send</button></div>
+</dialog>
+<script>
+const $ = s => document.querySelector(s);
+const NOISE = /^(Gs:\d|gps:\d|lacci=|rfhz_led|wifi_|check_scan|####wifi)/;
+let catalog = null, busy = false, firmware = null;
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({error: `HTTP ${r.status}`}));
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function addReply(title, text, ok) {
+  const t = new Date().toLocaleTimeString();
+  const head = `── ${t}  ${title}  ${ok === undefined ? '' : ok ? '✓ acknowledged' : '✗ NOT acknowledged'}\n`;
+  $('#replies').textContent = head + (text ? text.trim() + '\n' : '') + '\n' + $('#replies').textContent;
+}
+
+function setBusy(b) {
+  busy = b;
+  document.querySelectorAll('button[data-send], #readBtn, #console button').forEach(x => x.disabled = b);
+}
+
+function fieldValueOk(f, v) {
+  if (/[,#;]/.test(v)) return false;
+  if (!v) return !!f.optional;
+  if (f.type === 'number') return /^\d+$/.test(v) && +v >= f.min && +v <= f.max;
+  if (f.pattern) return new RegExp(f.pattern).test(v);
+  return true;
+}
+
+// Fills a template like "apn,{apn},{user}". Returns null if a value is invalid.
+function commandFrom(setting, values) {
+  if (!setting.fields) return setting.command;
+  let ok = true;
+  const cmd = setting.command.replace(/\{(\w+)\}/g, (_, name) => {
+    const v = String(values[name] ?? '').trim();
+    if (!fieldValueOk(setting.fields.find(f => f.name === name), v)) ok = false;
+    return v;
+  });
+  return ok ? cmd : null;
+}
+
+function buildCommand(setting, card) {
+  const values = {};
+  let ok = true;
+  for (const f of setting.fields) {
+    const el = card.querySelector(`[name="${f.name}"]`);
+    const v = el.value.trim();
+    values[f.name] = v;
+    const valid = fieldValueOk(f, v);
+    el.classList.toggle('invalid', !valid);
+    ok = ok && valid;
+  }
+  return ok ? commandFrom(setting, values) : null;
+}
+
+function settingById(id) {
+  for (const g of catalog.groups) {
+    const s = g.settings.find(s => s.id === id);
+    if (s) return s;
+  }
+}
+
+function askConfirm(text, cmd) {
+  return new Promise(resolve => {
+    $('#confirmText').textContent = text;
+    $('#confirmCmd').textContent = cmd.startsWith('AT:') ? cmd : `AT:${cmd}#`;
+    const d = $('#confirm');
+    $('#confirmYes').onclick = () => { d.close(); resolve(true); };
+    $('#confirmNo').onclick = () => { d.close(); resolve(false); };
+    d.oncancel = () => resolve(false);
+    d.showModal();
+  });
+}
+
+async function transmit(cmd, label, noAck) {
+  const r = await api('/api/send', {command: cmd});
+  // Some handlers answer only in the log or to the server; a missing AT RETURN is expected there.
+  addReply(label || cmd, r.reply, noAck && !r.ok ? undefined : r.ok);
+  return r;
+}
+
+async function send(cmd, resultEl, label, noAck) {
+  if (busy) return;
+  setBusy(true);
+  if (resultEl) { resultEl.className = 'result'; resultEl.textContent = 'Waiting for the tracker…'; }
+  try {
+    const r = await transmit(cmd, label, noAck);
+    if (resultEl) {
+      resultEl.className = 'result ' + (r.ok ? 'ok' : 'bad');
+      resultEl.textContent = r.ok ? 'Acknowledged by the firmware' : 'No acknowledgement within 10 s. Check the reply and log before retrying.';
+    }
+  } catch (e) {
+    addReply(label || cmd, 'Error: ' + e.message, false);
+    if (resultEl) { resultEl.className = 'result bad'; resultEl.textContent = e.message; }
+  } finally { setBusy(false); }
+}
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// APN (and anything else marked reboot) drops USB for about half a minute.
+async function waitForUsbCycle() {
+  const start = Date.now();
+  let sawDown = false;
+  while (Date.now() - start < 60000) {
+    const r = await api('/api/log?since=9007199254740991');
+    if (!r.connected) sawDown = true;
+    else if (sawDown) return;
+    await sleep(500);
+  }
+  throw new Error('USB did not return within 60 s. Send the remaining steps once the tracker is back.');
+}
+
+function fillSetting(setting, values) {
+  const card = document.querySelector(`.card[data-id="${setting.id}"]`);
+  if (!card) return;
+  for (const f of setting.fields || []) {
+    const el = card.querySelector(`[name="${f.name}"]`);
+    if (el && values[f.name] !== undefined) el.value = values[f.name];
+  }
+  if (card.update) card.update();
+}
+
+async function applyPreset(preset, result) {
+  if (busy) return;
+  const steps = [];
+  for (const step of preset.steps) {
+    const setting = settingById(step.setting);
+    if (!setting) {
+      result.className = 'result bad';
+      result.textContent = `Unknown setting “${step.setting}”`;
+      return;
+    }
+    const cmd = commandFrom(setting, step.values);
+    if (!cmd) {
+      result.className = 'result bad';
+      result.textContent = `${setting.label} has a value this firmware will not accept`;
+      return;
+    }
+    steps.push({setting, cmd, values: step.values});
+  }
+  const preview = steps.map(s => `AT:${s.cmd}#`).join('\n');
+  if (!(await askConfirm(preset.confirm, preview))) return;
+  setBusy(true);
+  try {
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      fillSetting(step.setting, step.values);
+      result.className = 'result';
+      result.textContent = `Sending ${step.setting.label} (${i + 1} of ${steps.length})…`;
+      const r = await transmit(step.cmd, `${preset.label}: ${step.setting.label}`, step.setting.noAck);
+      if (!r.ok && !step.setting.noAck) {
+        result.className = 'result bad';
+        result.textContent = `${step.setting.label} was not acknowledged. Later steps were not sent.`;
+        return;
+      }
+      if (step.setting.reboot && i < steps.length - 1) {
+        result.textContent = `${step.setting.label} saved. Waiting for the tracker to reboot…`;
+        await waitForUsbCycle();
+      }
+    }
+    result.className = 'result ok';
+    result.textContent = 'Preset applied.';
+  } catch (e) {
+    addReply(preset.label, 'Error: ' + e.message, false);
+    result.className = 'result bad';
+    result.textContent = e.message;
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderField(f) {
+  const lab = document.createElement('label');
+  lab.textContent = f.label + (f.optional ? ' (optional)' : '');
+  let el;
+  if (f.type === 'select') {
+    el = document.createElement('select');
+    for (const [v, t] of f.options) el.add(new Option(t, v));
+  } else {
+    el = document.createElement('input');
+    el.type = f.type === 'number' ? 'number' : 'text';
+    if (f.type === 'number') { el.min = f.min; el.max = f.max; }
+    el.spellcheck = false; el.autocomplete = 'off';
+  }
+  el.name = f.name;
+  if (f.default) el.value = f.default;
+  if (f.from) el.dataset.from = f.from;
+  lab.append(el);
+  return lab;
+}
+
+function renderSetting(s, danger) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.id = s.id;
+  card.innerHTML = `<div class="title"><b></b><span class="badge"></span></div>`;
+  card.querySelector('b').textContent = s.label;
+  const badge = card.querySelector('.badge');
+  badge.textContent = s.verified ? 'verified over USB' : 'unverified';
+  if (s.verified) badge.classList.add('verified');
+  if (s.help) { const p = document.createElement('div'); p.className = 'help'; p.textContent = s.help; card.append(p); }
+  const fields = s.fields || [];
+  if (fields.length) {
+    const box = document.createElement('div'); box.className = 'fields';
+    fields.forEach(f => box.append(renderField(f)));
+    card.append(box);
+  }
+  const foot = document.createElement('div'); foot.className = 'foot';
+  const btn = document.createElement('button');
+  btn.textContent = fields.length ? 'Apply' : 'Send';
+  if (danger) btn.className = 'bad';
+  btn.dataset.send = '1';
+  const preview = document.createElement('span'); preview.className = 'preview';
+  const result = document.createElement('span'); result.className = 'result';
+  foot.append(btn, preview, result);
+  card.append(foot);
+  const update = () => { const c = fields.length ? buildCommand(s, card) : s.command; preview.textContent = c ? `AT:${c}#` : 'fix the highlighted field'; };
+  card.addEventListener('input', update);
+  card.addEventListener('change', update);
+  card.update = update;
+  update();
+  btn.onclick = async () => {
+    const cmd = fields.length ? buildCommand(s, card) : s.command;
+    if (!cmd) { result.className = 'result bad'; result.textContent = 'Fix the highlighted field first'; return; }
+    if (s.confirm && !(await askConfirm(s.confirm, `AT:${cmd}#`))) return;
+    send(cmd, result, s.label);
+  };
+  return card;
+}
+
+function renderPreset(preset) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = '<div class="title"><b></b></div>';
+  card.querySelector('b').textContent = preset.label;
+  const help = document.createElement('div');
+  help.className = 'help';
+  help.textContent = preset.help || '';
+  card.append(help);
+  const preview = document.createElement('div');
+  preview.className = 'preview';
+  const lines = [];
+  for (const step of preset.steps) {
+    const setting = settingById(step.setting);
+    const cmd = setting && commandFrom(setting, step.values);
+    lines.push(cmd ? `AT:${cmd}#` : step.setting);
+  }
+  preview.textContent = lines.join('\n');
+  preview.style.whiteSpace = 'pre-wrap';
+  preview.style.display = 'block';
+  card.append(preview);
+  const foot = document.createElement('div');
+  foot.className = 'foot';
+  const btn = document.createElement('button');
+  btn.textContent = 'Apply to tracker';
+  btn.dataset.send = '1';
+  const result = document.createElement('span');
+  result.className = 'result';
+  foot.append(btn, result);
+  card.append(foot);
+  btn.onclick = () => applyPreset(preset, result);
+  return card;
+}
+
+function renderCatalog() {
+  const root = $('#settings');
+  root.innerHTML = '';
+  if (catalog.presets && catalog.presets.length) {
+    const sec = document.createElement('div');
+    const h = document.createElement('h2');
+    h.textContent = 'Presets';
+    sec.append(h);
+    const note = document.createElement('div');
+    note.className = 'help';
+    note.textContent = 'A preset writes every step in order. Add another one in tools/tracker_settings.json and it shows up here.';
+    sec.append(note);
+    catalog.presets.forEach(p => sec.append(renderPreset(p)));
+    root.append(sec);
+  }
+  for (const g of catalog.groups) {
+    const sec = document.createElement('div');
+    if (g.danger) sec.className = 'danger';
+    const h = document.createElement('h2'); h.textContent = g.name; sec.append(h);
+    const allActions = g.settings.every(s => !s.fields);
+    if (allActions && !g.danger) {
+      // Queries are one-click; a card each would bury the useful settings.
+      const card = document.createElement('div'); card.className = 'card';
+      const row = document.createElement('div'); row.className = 'actions';
+      for (const s of g.settings) {
+        const b = document.createElement('button'); b.className = 'ghost'; b.dataset.send = '1';
+        b.textContent = s.label + (s.verified ? '' : ' *');
+        b.title = (s.help ? s.help + '\n' : '') + `AT:${s.command}#` + (s.verified ? '' : '\n* unverified on this firmware');
+        b.onclick = () => send(s.command, null, s.label, s.noAck);
+        row.append(b);
+      }
+      card.append(row);
+      const p = document.createElement('div'); p.className = 'help'; p.style.margin = '8px 0 0';
+      p.textContent = 'Replies appear on the right. * = not yet verified over USB.';
+      card.append(p);
+      sec.append(card);
+    } else {
+      g.settings.forEach(s => sec.append(renderSetting(s, g.danger)));
+    }
+    root.append(sec);
+  }
+  const dl = $('#keywords');
+  catalog.keywords.split(' ').forEach(k => dl.append(new Option(k)));
+}
+
+function checkFirmware() {
+  const b = $('#banner');
+  if (firmware && firmware !== catalog.firmware) {
+    b.style.display = 'block';
+    b.textContent = `This tracker runs ${firmware}, but the settings list was written for ${catalog.firmware}. ` +
+      'Commands may behave differently; update tools/tracker_settings.json for this build.';
+  } else b.style.display = 'none';
+}
+
+$('#readBtn').onclick = async () => {
+  if (busy) return;
+  setBusy(true);
+  try {
+    const r = await api('/api/read', {});
+    addReply('Read from tracker (ts + getapn)', r.reply, r.ok);
+    const v = r.values;
+    if (v.upload) v.upload = v.upload.replace(/S$/, '');
+    if (v.zone) v.zone = v.zone.replace(/\.00$/, '');
+    if (v.ver) { firmware = v.ver; $('#fw').textContent = v.ver; checkFirmware(); }
+    document.querySelectorAll('[data-from]').forEach(el => {
+      if (v[el.dataset.from] !== undefined) el.value = v[el.dataset.from];
+    });
+    document.querySelectorAll('.card').forEach(c => c.update && c.update());
+  } catch (e) {
+    addReply('Read from tracker', 'Error: ' + e.message, false);
+  } finally { setBusy(false); }
+};
+
+$('#console').onsubmit = e => {
+  e.preventDefault();
+  const cmd = $('#cmd').value.trim().replace(/#$/, '');
+  if (cmd) send(cmd, null, cmd);
+};
+$('#clearReplies').onclick = () => $('#replies').textContent = '';
+
+let logPos = 0, logBuf = '';
+async function pollLog() {
+  try {
+    const r = await api('/api/log?since=' + logPos);
+    logPos = r.pos;
+    $('#dot').classList.toggle('on', r.connected);
+    $('#conn').textContent = r.connected ? 'Connected over USB' : (r.error || 'Disconnected');
+    if (r.text) {
+      logBuf = (logBuf + r.text).slice(-200000);
+      renderLog();
+    }
+  } catch (e) {
+    $('#dot').classList.remove('on');
+    $('#conn').textContent = 'UI server unreachable: ' + e.message;
+  }
+  setTimeout(pollLog, 700);
+}
+function renderLog() {
+  let t = logBuf;
+  if ($('#quiet').checked) t = t.split('\n').filter(l => !NOISE.test(l)).join('\n');
+  const el = $('#log');
+  el.textContent = t;
+  if ($('#follow').checked) el.scrollTop = el.scrollHeight;
+}
+$('#quiet').onchange = renderLog;
+
+api('/api/catalog').then(c => { catalog = c; renderCatalog(); }).catch(e => {
+  $('#settings').textContent = 'Could not load the settings list: ' + e.message;
+});
+pollLog();
+</script>
+</body>
+</html>
