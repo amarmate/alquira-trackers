@@ -54,10 +54,10 @@ headless "$PROJECT/run1.log" -import "$ROOT/firmware/backup/$BACKUP_NAME" \
     -preScript SetupMemory.java -postScript FixCode.java
 require "$PROJECT/run1.log" SetupMemory FixCode
 
-echo "run 2/2: re-analysis, code fixes and export (a few minutes)"
+echo "run 2/2: re-analysis, code fixes, names and export (a few minutes)"
 headless "$PROJECT/run2.log" -process "$BACKUP_NAME" \
-    -postScript FixCode.java -postScript ExportC.java "$OUT"
-require "$PROJECT/run2.log" FixCode ExportC
+    -postScript FixCode.java -postScript ApplyNames.java "$OUT" -postScript ExportC.java "$OUT"
+require "$PROJECT/run2.log" FixCode ApplyNames ExportC
 
 echo
 cat "$PROJECT/run1.log" "$PROJECT/run2.log" | sed -n 's/.*V24: \(.*\) (GhidraScript).*/\1/p' | grep -v ' done$'
