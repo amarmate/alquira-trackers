@@ -37,6 +37,20 @@ void sms_apn_handle(char *param_1)
 // ---- thunk_FUN_88000400 @ 881b5000 ----
 // DECOMPILE FAILED: timeout
 '''
+# Names Ghidra makes up by itself. They say nothing about what a function does.
+GHIDRA_NAMES = '''// ---- caseD_1 @ 820f1714 ----
+
+void caseD_1(void)
+{
+}
+
+// ---- thunk_EXT_FUN_a2014ea0 @ 8804bf34 ----
+
+void thunk_EXT_FUN_a2014ea0(void)
+{
+}
+
+'''
 
 
 class MetricsTests(unittest.TestCase):
@@ -46,6 +60,11 @@ class MetricsTests(unittest.TestCase):
     def test_counts_functions_and_names(self):
         self.assertEqual(self.result['functions'], 3)
         self.assertEqual(self.result['named'], 1)
+
+    def test_names_ghidra_makes_up_do_not_count_as_named(self):
+        result = measure(GHIDRA_NAMES)
+        self.assertEqual(result['functions'], 2)
+        self.assertEqual(result['named'], 0)
 
     def test_string_literals_are_distinct_and_survive_quotes(self):
         self.assertEqual(self.result['string_literals'], 2)
@@ -59,7 +78,7 @@ class MetricsTests(unittest.TestCase):
     def test_missing_targets_by_region(self):
         self.assertEqual(self.result['missing_targets'], 4)
         self.assertEqual(self.result['missing_by_region'],
-                         {'rom': 1, 'sram': 1, 'ram': 1, 'ram_packed': 1})
+                         {'rom': 1, 'sram': 1, 'ram': 1, 'ram_overlay': 1})
 
     def test_spot_check_lists_absent_names(self):
         self.assertEqual(self.result['spot_check_missing'],

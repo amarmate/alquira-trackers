@@ -8,7 +8,8 @@ import re
 import sys
 
 HEADER = re.compile(r'^// ---- (\S+) @ ([0-9a-f]{8}) ----$', re.M)
-DEFAULT_NAME = re.compile(r'^(thunk_)?FUN_[0-9a-f]{8}$')
+# Names Ghidra makes up: FUN_88000400, thunk_FUN_..., thunk_EXT_FUN_..., caseD_1.
+DEFAULT_NAME = re.compile(r'^(thunk_)?(EXT_)?FUN_[0-9a-f]{8}$|^caseD_[0-9a-f]+$')
 # Char literals go first: '"' would otherwise open a string that never closes.
 CHAR = re.compile(r"'(?:[^'\\\n]|\\.)'")
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
@@ -16,12 +17,12 @@ MISSING = re.compile(r'\bfunc_0x([0-9a-f]{8})\b')
 OUR_FILE = re.compile(r'[0-9a-f]{8}\.c')
 
 # Where a call with no function behind it points. Bounds match SetupMemory.java.
-# ram_packed is code the firmware unpacks at boot: no bytes for it in the backup.
+# ram_overlay is the code stored compressed in flash and unpacked at boot.
 REGIONS = [
     ('sram', 0x81c00000, 0x81d00000),
     ('rom', 0x81e00000, 0x81f00000),
     ('ram', 0x82000000, 0x8201d5e0),
-    ('ram_packed', 0x8201d5e0, 0x83000000),
+    ('ram_overlay', 0x8201d5e0, 0x82101e80),
 ]
 SPOT_CHECK = ('sms_apn_handle', 'get_apn_handle', 'set_url_port')
 

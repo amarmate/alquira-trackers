@@ -3,6 +3,7 @@
 // Why 64 KiB: one 9 MB file is unusable in an editor, and module boundaries are not
 // known yet, so the split follows addresses and promises nothing more.
 import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
@@ -10,6 +11,8 @@ import ghidra.program.model.listing.Listing;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
+import java.util.Map;
+import java.util.TreeMap;
 
 public class ExportC extends GhidraScript {
     @Override
@@ -17,8 +20,14 @@ public class ExportC extends GhidraScript {
         File dir = new File(getScriptArgs()[0]);
         Listing listing = currentProgram.getListing();
         DecompInterface decompiler = new DecompInterface();
+        // Without options the decompiler ignores read-only memory, and strings and
+        // pool constants come out as PTR_ and DAT_ symbols instead of values.
+        DecompileOptions options = new DecompileOptions();
+        options.grabFromProgram(currentProgram);
+        decompiler.setOptions(options);
         decompiler.openProgram(currentProgram);
-        int exported = 0, failed = 0, withoutCode = 0;
+        int exported = 0, failed = 0;
+        Map<String, Integer> withoutCode = new TreeMap<>();  // block name -> functions
         String file = null;
         PrintWriter c = null;
         try (PrintWriter index = new PrintWriter(new FileWriter(new File(dir, "index.tsv")))) {
@@ -28,10 +37,12 @@ public class ExportC extends GhidraScript {
                 monitor.checkCancelled();
                 String row = f.getEntryPoint() + "\t" + f.getName() + "\t" + nameSource(f) + "\t";
                 int callers = f.getCallingFunctions(monitor).size();
-                // ROM functions are named stubs with no bytes behind them: index, don't decompile.
+                // Call targets in the ROM and in the packed RAM range have no bytes behind
+                // them: index them, so they can be named, but there is nothing to decompile.
                 if (listing.getInstructionAt(f.getEntryPoint()) == null) {
                     index.println(row + "0\t\t" + callers);
-                    withoutCode++;
+                    String block = currentProgram.getMemory().getBlock(f.getEntryPoint()).getName();
+                    withoutCode.merge(block, 1, Integer::sum);
                     continue;
                 }
                 String wanted = String.format("%08x.c", f.getEntryPoint().getOffset() & ~0xffffL);
@@ -55,8 +66,8 @@ public class ExportC extends GhidraScript {
             if (c != null) c.close();
             decompiler.dispose();
         }
-        println("V24: exported " + exported + " functions (" + failed + " failed to decompile, "
-                + withoutCode + " without code) to " + dir);
+        println("V24: exported " + exported + " functions, " + failed + " failed to decompile");
+        println("V24: called functions with no code behind them: " + withoutCode);
         println("V24: ExportC done");
     }
 

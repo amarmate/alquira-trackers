@@ -2,7 +2,7 @@
 # Rebuild the V24 decompile from the flash backup.
 # Design: docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md
 # Offline. Writes firmware/ghidra/ (project, logs) and firmware/decompiled/ (export);
-# both are gitignored because they hold vendor code. Takes about 25 minutes.
+# both are gitignored because they hold vendor code. Takes about 15 minutes.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -45,12 +45,16 @@ require() {  # require <log> <script name>...
     done
 }
 
-echo "run 1/2: import and analysis (about 10 minutes)"
+# The whole 4 MiB, not just the code: the code points at tables, settings and
+# factory data that sit well past it, and the packed RAM code is in there too.
+echo "run 1/2: import, memory map and analysis (about 10 minutes)"
 headless "$PROJECT/run1.log" -import "$ROOT/firmware/backup/$BACKUP_NAME" \
-    -loader BinaryLoader -loader-baseAddr 0x88000000 -loader-length 0x290000 -loader-blockName flash \
-    -processor MIPS:LE:32:default -cspec default
+    -loader BinaryLoader -loader-baseAddr 0x88000000 -loader-blockName flash \
+    -processor MIPS:LE:32:default -cspec default \
+    -preScript SetupMemory.java
+require "$PROJECT/run1.log" SetupMemory
 
-echo "run 2/2: re-analysis and export (about 15 minutes)"
+echo "run 2/2: re-analysis and export (a few minutes)"
 headless "$PROJECT/run2.log" -process "$BACKUP_NAME" \
     -postScript ExportC.java "$OUT"
 require "$PROJECT/run2.log" ExportC

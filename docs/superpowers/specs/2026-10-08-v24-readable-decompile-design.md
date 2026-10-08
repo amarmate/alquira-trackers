@@ -153,52 +153,121 @@ section 9.
 Types and structs, hand cleanup, peripheral register names, any patch, any device
 access, and a source tree that compiles.
 
-## 11. Amendments from planning (2026-10-08)
+## 11. Amendments from planning and implementation (2026-10-08)
 
-Measured on the backup while writing the implementation plan
+Found while writing and running the implementation plan
 (`docs/superpowers/plans/2026-10-08-v24-readable-decompile.md`). Where this section and
-sections 5, 6 or 8 disagree, this section holds.
+sections 2, 5, 6, 8 or 9 disagree, this section holds. Everything here was read from the
+backup or from the decompile it produced, unless marked **(unverified)**.
 
-**Memory map (replaces the estimates in section 5).** The offsets in section 5 are
-right; the bounds below are exact and come from two tables in the image.
+### 11.1 Memory map (replaces section 5)
+
+The second-stage boot loader is the function at flash `0x3ebc` (`boot_LoaderEnter` in the
+public SDK). Its copy loops give the ranges. It then write-protects the code ranges with
+`hal_DbgPageProtectSetup(page, WRITE_TRIGGER, start, end)`, which is how text is told
+from data. Text is loaded read-only, data writable.
 
 | Run address | Flash source | Content | Evidence |
 |---|---|---|---|
-| `0x81c00680`–`0x81c01ad0` | `0x29d0`–`0x3e20` | boot loader's SRAM section | copy loop pool at flash `0x1460` |
-| `0x81c01ad0`–`0x81c01f80` | `0x4490`–`0x4940` | SRAM, copied by the boot loop | pool at flash `0xdc4` |
-| `0x81c01f80`–`0x81c08260` | `0x4940`–`0xac20` | SRAM text | range table at flash `0x1c4f8`; 24 of 32 call targets on a prologue |
-| `0x81c08260`–`0x81c089e0` | `0xac20`–`0xb3a0` | SRAM data, then BSS | BSS bounds in the pool at `0xdc4`; `0x8800b3a0` is referenced from flash |
-| `0x82000100`–`0x82000e60` | `0x105b0`–`0x11310` | RAM, copied by the boot loop | pool at flash `0xdc4` |
-| `0x82000e60`–`0x82014d90` | `0x11310`–`0x25240` | RAM text | range table at flash `0x1c4f8`; 137 of 232 call targets on a prologue, the misses are leaf functions |
-| `0x82014d90`–`0x8201d5e0` | `0x25240`–`0x2da90` | RAM data | zero padding at flash `0x2da80`, flash code from `0x2da90` |
-| `0x8201d5e0`–`0x82101f30` | not stored uncompressed | code unpacked at boot | 209 call targets from `0x8201d620` up; BSS starts at `0x82101f30` |
+| `0x81c00280`–`0x81c00430` | `0x42e0`–`0x4490` | SRAM interrupt code | copy loop; protected page 6 |
+| `0x81c00680`–`0x81c01ad0` | `0x29d0`–`0x3e20` | first-stage boot loader's own section | first stage's pool at flash `0x1460` |
+| `0x81c01ad0`–`0x81c01f00` | `0x4490`–`0x48c0` | SRAM boot code | first stage's pool at flash `0xdc4`; protected page 7 |
+| `0x81c01f00`–`0x81c01f80` | `0x48c0`–`0x4940` | SRAM boot data | copied with the row above, not protected |
+| `0x81c01f80`–`0x81c08260` | `0x4940`–`0xac20` | SRAM text | copy loop; protected page 3 |
+| `0x81c08260`–`0x81c089e0` | `0xac20`–`0xb3a0` | SRAM data | same copy loop; BSS from `0x81c089f0` |
+| `0x82000100`–`0x82000e60` | `0x105b0`–`0x11310` | RAM boot code | first stage's pool at flash `0xdc4`; protected page 8 |
+| `0x82000e60`–`0x82014d90` | `0x11310`–`0x25240` | RAM text | copy loop; protected page 2 |
+| `0x82014d90`–`0x8201d5e0` | `0x25240`–`0x2da90` | RAM data | same copy loop |
+| `0x8201d5e0`–`0x82050260` | `0x2d7860`, 123 KiB LZMA | code | see 11.2 |
+| `0x82050260`–`0x820eab40` | `0x2f6300`, 375 KiB LZMA | mostly read-only data, some code | see 11.2 |
+| `0x820eab40`–`0x82101e80` | `0x353f80`, 54 KiB LZMA | code | see 11.2 |
+| `0x82101e80`–`0x82400000` | none | variables and BSS (cleared `0x82101f40`–`0x8223ab60`) | BSS loop; page 9 guards from `0x82400000`, so RAM is 4 MiB |
+| `0x81e00000` | none | chip ROM, names only | see 11.4 |
+| `0xa1a00000`–`0xa1a40000` | none | system registers, volatile | pool words |
 
-What copies the two text ranges, and what the `0x882d76e0` entry in the same table
-means, is **unverified**: the plan reads that code once it is decompiled (Task 3).
-The text ranges are loaded read-only, the data ranges writable.
+The table at flash `0x1c4f8` that planning took for a copy table is an "is this a code
+address" check. Its last entry, `0x882d76e0`, is the end of the flash image proper.
 
-**The packed range starts at `0x8201d5e0`, not `0x82020000`.** It holds 209 of the 518
-missing call targets, not 161. Section 8's "0 for RAM below `0x82020000`" becomes "0 for
-RAM below `0x8201d5e0`" (248 targets).
+### 11.2 The packed RAM code is resolved (replaces the first item of section 9)
 
-**The image bytes are also hidden at their flash address.** Left executable there, the
-RAM code would be analysed a second time at the wrong address. The build carves those
-flash ranges into non-executable blocks.
+It is three LZMA streams with the standard `.lzma` header. The loaders at flash
+`0x1620a4`, `0x162108` and `0x162170` each look up a segment, unpack it and check it:
 
-**ROM: the ELF is not needed.** `firmware/live/2026-10-08-loader-audit/rda-rom.map`
-(saved by the loader audit) has every one of the 24 ROM call targets as a symbol start:
-`memcpy`, `memset`, `strlen`, `sprintf`, `atoi` and so on. Its ROM version, `0x51612152`,
-is the value read from this chip. The ROM is loaded as a block with no bytes and the
-referenced addresses are named from a committed `tools/ghidra/v24_names.rom.tsv`. One
-loose end: the boot loader's pool at flash `0x148c` holds `0x51608222`, the version in
-the SDK's `u01` ROM definition. What the boot loader compares it with is **unverified**.
+| Segment | Flash | Destination | Unpacked | Checksum the firmware expects |
+|---|---|---|---|---|
+| 0 | `0x2d7860`–`0x2f62d2` | `0x8201d5e0` | `0x32c80` | `0x8a7ac17c` |
+| 1 | `0x2f6300`–`0x353f52` | `0x82050260` | `0x9a8e0` | `0x76212f3e` |
+| 2 | `0x353f80`–`0x36180e` | `0x820eab40` | `0x17340` | `0x25f19f18` |
 
-**Name rule (section 6, source 1).** The identifier must contain an underscore. That is
-the rule that reproduces the counts in section 2: 798 distinct leading identifiers in
-the raw flash strings, 151 `sms_*` and 185 `*_handle`. A name is applied only when it is
+The checksum routine (`0x8200e0c8`) is the POSIX `cksum` CRC. Computed over each
+unpacked segment on the host it gives exactly those three values, so the unpack is
+byte-exact. `SetupMemory.java` unpacks the segments with the LZMA library that ships
+with Ghidra and loads them read-only: in the public SDK's linker script
+(`compress_code_section_3264.ld`) these sections take only `.text` and `.rodata`.
+That this firmware's script does the same is **(unverified)**; it is one SDK version
+older and vendor-modified.
+
+So the 576 KiB at `0x2d0000` is not audio. `0x290000`–`0x2d76e0` is a pointer table and
+UI images; `0x2d7750` is the segment locator function; the packed code runs from
+`0x2d7860` to `0x361892`; the flash is blank from there to `0x37a000`.
+
+### 11.3 Import range and flash layout (changes section 5's first row)
+
+The whole 4 MiB is imported, not `0x000000`–`0x290000`. The code points at a pointer
+table at `0x290000` (175 pool words), at the packed segments, and at the settings and
+factory areas; with the short import those references dangle.
+
+| Flash | Loaded as |
+|---|---|
+| `0x000000`–`0x238720`, minus the load images above | code, read-only, executable |
+| the load images of the copied sections | read-only, not executable: analysed there they would be a second, wrong copy of each function |
+| `0x238720`–`0x362000` | data, read-only, not executable. Flash code ends at `0x238704`; with the string tables executable Ghidra finds "functions" in them |
+| `0x362000`–`0x400000` | data, writable: file system, settings, calibration, factory block are rewritten at run time and must not read as constants |
+
+### 11.4 ROM: the ELF is not needed (replaces the ROM row of section 5)
+
+`firmware/live/2026-10-08-loader-audit/rda-rom.map` (saved by the loader audit) has
+every ROM address the firmware calls as a symbol start: `memcpy`, `memset`, `strlen`,
+`sprintf`, `atoi` and so on. Its ROM version, `0x51612152`, is the value read from this
+chip. The ROM is a block with no bytes; the referenced addresses are named from the
+committed `tools/ghidra/v24_names.rom.tsv`. One loose end: the first-stage boot loader's
+pool at flash `0x148c` holds `0x51608222`, the version in the SDK's `u01` ROM
+definition. What it is compared with is **(unverified)**.
+
+### 11.5 Why the old export had no strings (corrects section 2)
+
+Two causes, both needed. The flash block was writable, as section 2 says. And
+`ExportC.java` never passed options to the decompiler, which then ignores read-only
+memory altogether. The baseline also has 0 string literals, not 6: the six lines are
+the character literal `'\"'`.
+
+### 11.6 Function discovery (refines section 4's FixCode row)
+
+`FixCode.java` runs in both Ghidra runs and creates functions in four places:
+
+1. direct call targets where Ghidra had defined a data word instead of code;
+2. MIPS16 code pointers found in any loaded memory (bit 0 set, 4-aligned target);
+3. the frame idiom in bytes that are not code yet: `addiu sp,-N`, `sw ra` within eight
+   instructions, and the matching `jr a3` with `addiu sp,+N` in its delay slot. The
+   prologue alone matches 8 places in the string tables; the full idiom matches none
+   and keeps 9,727 of 9,871 matches in flash code;
+4. runs of code that Ghidra disassembled but left outside every function, when
+   nothing falls or jumps into them. Without this about 107 KiB of code is absent
+   from the export.
+
+### 11.7 Name rule (refines section 6, source 1)
+
+The identifier must contain an underscore and may follow leading whitespace
+(`"\n set_url_port.url:%s"`). In the raw flash strings that gives 798 distinct leading
+identifiers, 151 `sms_*` and 185 `*_handle`. A name is applied only when it is
 one-to-one: one function prints the identifier and that function prints no other.
 
-**Build facts.** A stock headless import and analysis reproduces the baseline exactly
-(8,521 functions) and takes about 9 minutes on this Mac, so a full build is about 25.
-`analyzeHeadless` exits 0 when a script throws; the build checks for a completion line
-from every script instead.
+### 11.8 Build facts
+
+- A stock headless import and analysis reproduces the baseline exactly (8,521
+  functions). Run 1 takes about 9 minutes, run 2 a few; the build about 15.
+- `analyzeHeadless` exits 0 when a script throws. The build checks for a completion
+  line from every script instead.
+- Ghidra creates stub functions at call targets in blocks without bytes, so those
+  calls render as `FUN_…`/names, not `func_0x…`. The export reports "called functions
+  with no code behind them" per block; after 11.2 that is the ROM only.
