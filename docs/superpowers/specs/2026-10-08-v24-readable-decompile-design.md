@@ -152,3 +152,53 @@ section 9.
 
 Types and structs, hand cleanup, peripheral register names, any patch, any device
 access, and a source tree that compiles.
+
+## 11. Amendments from planning (2026-10-08)
+
+Measured on the backup while writing the implementation plan
+(`docs/superpowers/plans/2026-10-08-v24-readable-decompile.md`). Where this section and
+sections 5, 6 or 8 disagree, this section holds.
+
+**Memory map (replaces the estimates in section 5).** The offsets in section 5 are
+right; the bounds below are exact and come from two tables in the image.
+
+| Run address | Flash source | Content | Evidence |
+|---|---|---|---|
+| `0x81c00680`–`0x81c01ad0` | `0x29d0`–`0x3e20` | boot loader's SRAM section | copy loop pool at flash `0x1460` |
+| `0x81c01ad0`–`0x81c01f80` | `0x4490`–`0x4940` | SRAM, copied by the boot loop | pool at flash `0xdc4` |
+| `0x81c01f80`–`0x81c08260` | `0x4940`–`0xac20` | SRAM text | range table at flash `0x1c4f8`; 24 of 32 call targets on a prologue |
+| `0x81c08260`–`0x81c089e0` | `0xac20`–`0xb3a0` | SRAM data, then BSS | BSS bounds in the pool at `0xdc4`; `0x8800b3a0` is referenced from flash |
+| `0x82000100`–`0x82000e60` | `0x105b0`–`0x11310` | RAM, copied by the boot loop | pool at flash `0xdc4` |
+| `0x82000e60`–`0x82014d90` | `0x11310`–`0x25240` | RAM text | range table at flash `0x1c4f8`; 137 of 232 call targets on a prologue, the misses are leaf functions |
+| `0x82014d90`–`0x8201d5e0` | `0x25240`–`0x2da90` | RAM data | zero padding at flash `0x2da80`, flash code from `0x2da90` |
+| `0x8201d5e0`–`0x82101f30` | not stored uncompressed | code unpacked at boot | 209 call targets from `0x8201d620` up; BSS starts at `0x82101f30` |
+
+What copies the two text ranges, and what the `0x882d76e0` entry in the same table
+means, is **unverified**: the plan reads that code once it is decompiled (Task 3).
+The text ranges are loaded read-only, the data ranges writable.
+
+**The packed range starts at `0x8201d5e0`, not `0x82020000`.** It holds 209 of the 518
+missing call targets, not 161. Section 8's "0 for RAM below `0x82020000`" becomes "0 for
+RAM below `0x8201d5e0`" (248 targets).
+
+**The image bytes are also hidden at their flash address.** Left executable there, the
+RAM code would be analysed a second time at the wrong address. The build carves those
+flash ranges into non-executable blocks.
+
+**ROM: the ELF is not needed.** `firmware/live/2026-10-08-loader-audit/rda-rom.map`
+(saved by the loader audit) has every one of the 24 ROM call targets as a symbol start:
+`memcpy`, `memset`, `strlen`, `sprintf`, `atoi` and so on. Its ROM version, `0x51612152`,
+is the value read from this chip. The ROM is loaded as a block with no bytes and the
+referenced addresses are named from a committed `tools/ghidra/v24_names.rom.tsv`. One
+loose end: the boot loader's pool at flash `0x148c` holds `0x51608222`, the version in
+the SDK's `u01` ROM definition. What the boot loader compares it with is **unverified**.
+
+**Name rule (section 6, source 1).** The identifier must contain an underscore. That is
+the rule that reproduces the counts in section 2: 798 distinct leading identifiers in
+the raw flash strings, 151 `sms_*` and 185 `*_handle`. A name is applied only when it is
+one-to-one: one function prints the identifier and that function prints no other.
+
+**Build facts.** A stock headless import and analysis reproduces the baseline exactly
+(8,521 functions) and takes about 9 minutes on this Mac, so a full build is about 25.
+`analyzeHeadless` exits 0 when a script throws; the build checks for a completion line
+from every script instead.
