@@ -1,6 +1,7 @@
 # RDA8955 chip ROM symbols. Generated on 2026-10-08 from the SDK ROM map
 # (rda-rom.map, ROM version 0x51612152, the version read from this chip).
-# All 24 ROM addresses the firmware calls are symbol starts in this map.
+# Every ROM address the firmware calls (38 in the 2026-10-08 build) is a symbol start
+# in this map. Addresses the firmware never references are skipped by the build.
 # address	name	source	evidence
 0x81e00000	__xcpu_start	rom	rda-rom.map
 0x81e00180	_boot_IrqHandler	rom	rda-rom.map
