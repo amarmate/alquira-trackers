@@ -1,9 +1,13 @@
 """Single bounded force-ROM experiment on the user-confirmed original 417.
 
 Default: dry plan. --execute changes only volatile boot-mode bits, sends one
-internal debug reset, validates the ROM interface/handshake and restores boot
-bits. No programmer load, RAM payload, flash erase or flash program command.
+internal debug reset, validates the ROM interface/handshake, then reads the ROM
+and the whole flash twice from ROM mode. It writes nothing while in ROM mode.
+No programmer load, RAM payload, flash erase or flash program command.
 This tests warm forced-ROM access, not cold recovery from erased boot flash.
+
+--plain-reset is the control: the same checks and the same reset, without the
+force bit, so the two runs can be compared.
 """
 import argparse
 import hashlib
@@ -13,17 +17,20 @@ from pathlib import Path
 import struct
 import sys
 import time
+from types import SimpleNamespace
 
 import usb.backend.libusb1
 import usb.core
 import usb.util
 
 from rda_dump import LIBUSB, read_block, xor
+from rda_flash import FLASH_BASE, FLASH_SIZE, PROTECTED, Monitor
 from rda_recovery_snapshot import read_word
 from rda_usb_watch import snapshot
 
 RESET_CAUSE = 0x01A000A0
 BOOT_FIELDS = 0x0FFF0000
+NORMAL_BOOT_FIELDS = 0x00200000
 FORCE_MONITOR = 1 << 17
 ROM_SHA256 = '3946ea195270620f0907997f96f32fbaa1e2ab405146235fef2afb5f3c4680d7'
 
@@ -91,15 +98,50 @@ def device_named(backend, expected):
     return dev
 
 
+def compare(flash, backup):
+    """How a live image differs from a backup, by 4 KiB sector. Settings change at runtime."""
+    sectors = [offset for offset in range(0, FLASH_SIZE, 0x1000)
+               if flash[offset:offset + 0x1000] != backup[offset:offset + 0x1000]]
+    return dict(differing_bytes=sum(a != b for a, b in zip(flash, backup)),
+                differing_4k_sectors=[hex(s) for s in sectors],
+                protected_tail_matches=flash[PROTECTED:] == backup[PROTECTED:])
+
+
+def observe(backend, emit, seconds, reset_at, stop_on=None):
+    """Log every USB change for `seconds` after the reset; True once `stop_on` enumerates."""
+    previous = None
+    while time.monotonic() < reset_at + seconds:
+        state = snapshot(backend)
+        if state != previous:
+            emit(event='transition', since_reset=round(time.monotonic() - reset_at, 3), **state)
+            previous = state
+        if stop_on and any(i.get('name') == stop_on
+                           for d in state['trackers'] for i in d['interfaces']):
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--unit', choices=['1403167417'])
     parser.add_argument('--output', type=Path)
+    # The control for the forced run: the vendor firmware's own restart also left USB
+    # dark on 2026-10-08, so "no USB after the reset" alone says nothing about the ROM.
+    parser.add_argument('--plain-reset', action='store_true',
+                        help='control run: the same debug reset without FORCE_MONITOR')
+    parser.add_argument('--observe', type=int, default=30, choices=range(30, 181),
+                        metavar='30..180', help='seconds to log USB after the reset')
     args = parser.parse_args()
-    print('Plan: verify 417 boot bytes and ROM hash; preserve boot fields; set FORCE_MONITOR;', flush=True)
-    print('send one debug reset; observe 30 s; handshake only with Coolsand Usb;', flush=True)
-    print('restore boot fields; verify ROM persists 5 s; exit monitor to original firmware.', flush=True)
+    if args.plain_reset:
+        print('Plan: verify 417 boot bytes and ROM hash; leave boot fields alone;', flush=True)
+        print(f'send one debug reset; log USB for {args.observe} s. No handshake.', flush=True)
+    else:
+        print('Plan: verify 417 boot bytes and ROM hash; preserve boot fields; set FORCE_MONITOR;', flush=True)
+        print(f'send one debug reset; observe {args.observe} s; handshake only with Coolsand Usb;', flush=True)
+        print('write nothing in ROM mode; read the ROM and the whole flash twice,', flush=True)
+        print('save the flash next to the log; exit monitor to original firmware.', flush=True)
     print('No RAM program loads or flash writes. Power/cable recovery may be needed on failure.', flush=True)
     if not args.execute:
         print('debug reset:', DEBUG_RESET.hex(' '))
@@ -136,60 +178,74 @@ def main():
         if hashlib.sha256(rom).hexdigest() != ROM_SHA256:
             raise RuntimeError('ROM mismatch')
         cause = read_word(dev, RESET_CAUSE)
-        saved = cause & BOOT_FIELDS
-        # Reject unexpected boot state rather than silently changing extra modes.
-        if ((saved >> 16) & 0x3f) != 0x20 or cause & 0x80000000:
-            raise RuntimeError(f'Unexpected boot state {cause:#x}')
+        # Every read of this unit gave 0x00200000 until Run B wrote that value from ROM mode
+        # and left 0x00350000. The SDK's ROM source copies a USB write with memcpy, which
+        # is not a 32-bit register store. So registers are written here, through the vendor
+        # firmware, only; and the whole known field is written, not what happens to be there.
+        if cause & ~BOOT_FIELDS:
+            raise RuntimeError(f'Unexpected reset cause {cause:#x}')
+        saved = NORMAL_BOOT_FIELDS
         forced = saved | FORCE_MONITOR
-        emit(event='preflight_ok', reset_cause=hex(cause), saved=hex(saved), forced=hex(forced))
-        send(dev, boot_packet(forced))
-        readback = read_word(dev, RESET_CAUSE)
-        emit(event='force_readback', value=hex(readback))
-        if readback & BOOT_FIELDS != forced:
-            send(dev, boot_packet(saved))
-            emit(event='pre_reset_restore', value=hex(read_word(dev, RESET_CAUSE)))
-            raise RuntimeError('Force bit not confirmed; original bits restore attempted; no reset')
-        emit(event='force_confirmed', tx=boot_packet(forced).hex())
+        emit(event='preflight_ok', reset_cause=hex(cause), saved=hex(saved),
+             forced=None if args.plain_reset else hex(forced))
+        if not args.plain_reset:
+            send(dev, boot_packet(forced))
+            readback = read_word(dev, RESET_CAUSE)
+            emit(event='force_readback', value=hex(readback))
+            if readback & BOOT_FIELDS != forced:
+                send(dev, boot_packet(saved))
+                emit(event='pre_reset_restore', value=hex(read_word(dev, RESET_CAUSE)))
+                raise RuntimeError('Force bit not confirmed; original bits restore attempted; no reset')
+            emit(event='force_confirmed', tx=boot_packet(forced).hex())
         emit(event='reset_request', tx=DEBUG_RESET.hex())
         try:
             send(dev, DEBUG_RESET)
         except usb.core.USBError as exc:
             emit(event='reset_transfer_uncertain', error=str(exc))
+        reset_at = time.monotonic()
         usb.util.dispose_resources(dev)
         dev = None
-        deadline = time.monotonic() + 30
-        previous = None
-        found = False
-        while time.monotonic() < deadline:
-            state = snapshot(backend)
-            if state != previous:
-                emit(event='transition', **state)
-                previous = state
-            if any(i.get('name') == 'Coolsand Usb'
-                   for d in state['trackers'] for i in d['interfaces']):
-                found = True
-                break
-            time.sleep(0.2)
-        if not found:
-            emit(event='failed', reason='No ROM interface in 30 s; no reset retry or programmer load',
+        if args.plain_reset:
+            observe(backend, emit, args.observe, reset_at)
+            emit(event='control_complete', seconds=args.observe)
+            return
+        if not observe(backend, emit, args.observe, reset_at, stop_on='Coolsand Usb'):
+            emit(event='failed',
+                 reason=f'No ROM interface in {args.observe} s; no reset retry or programmer load',
                  boot_fields_restored=False)
             raise RuntimeError('ROM absent; volatile force bit may remain until power cycle')
         dev = device_named(backend, 'Coolsand Usb')
         send(dev, MONITOR_START)
         emit(event='rom_handshake', rx=expect_start(dev).hex())
-        send(dev, boot_packet(saved))
-        restored = read_word(dev, RESET_CAUSE) & BOOT_FIELDS
-        emit(event='boot_fields_restored', value=hex(restored))
-        if restored != saved:
-            raise RuntimeError('Boot fields restoration not confirmed; stopping in ROM')
-        for n in range(6):
-            if read_word(dev, 0x01e05ff8) != 0x51612152:
-                raise RuntimeError('ROM version changed')
-            if n != 5:
-                time.sleep(1)
-        if read_block(dev, 0x88000000) != boot:
-            raise RuntimeError('Boot flash mismatch in ROM')
-        emit(event='rom_stable', seconds=5, boot_flash_matches=True)
+        # Read only: see the preflight comment. The force bit therefore stays set until
+        # RST, a power loss or the next preflight; each warm reset until then waits in the
+        # monitor for 30 s before booting.
+        emit(event='rom_reset_cause', value=hex(read_word(dev, RESET_CAUSE)))
+        # The writer's own reader, so this exercises the frames rda_flash.py will use.
+        # Every request also restarts the monitor's 30 s idle timer.
+        monitor = Monitor(dev, SimpleNamespace(emit=lambda event, **f: emit(event=event, **f)),
+                          usb.core.USBTimeoutError)
+        if hashlib.sha256(monitor.read(0xA1E00000, 0x6000)).hexdigest() != ROM_SHA256:
+            raise RuntimeError('ROM mismatch in ROM mode')
+        emit(event='rom_hash_matches')
+        backup = (root / 'firmware/backup/v24_1403167417_2026-10-03_flash.bin').read_bytes()
+        passes = []
+        for n in (1, 2):
+            t0 = time.monotonic()
+            data = bytearray()
+            for offset in range(0, FLASH_SIZE, 0x40000):
+                data += monitor.read(FLASH_BASE + offset, 0x40000)
+                emit(event='flash_read_progress', read_pass=n, kib=len(data) // 1024,
+                     seconds=round(time.monotonic() - t0, 1))
+            passes.append(bytes(data))
+        flash = passes[0]
+        if passes[1] != flash:
+            raise RuntimeError('Two ROM-mode flash reads differ')
+        args.output.with_suffix('.flash.bin').write_bytes(flash)
+        emit(event='rom_flash_read', sha256=hashlib.sha256(flash).hexdigest(),
+             two_reads_match=True, boot_matches=flash[:1024] == boot,
+             **compare(flash, backup))
+        emit(event='rom_reset_cause_end', value=hex(read_word(dev, RESET_CAUSE)))
         send(dev, MONITOR_END)
         emit(event='monitor_exit_requested', tx=MONITOR_END.hex())
         usb.util.dispose_resources(dev)

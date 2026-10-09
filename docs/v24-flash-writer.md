@@ -1,14 +1,40 @@
 # V24 flash writer: operator guide
 
-Status, 2026-10-08: `tools/rda_flash.py` has an audited host implementation and
-offline fault tests. **No RAM programmer has been loaded, and no flash write has
-been qualified on a tracker.** Original `1403167417` remains blocked. The failed
-ROM-entry attempt, unknown flash chip and unresolved board power/RAM compatibility
-prevent a reliable live write today. Only this original unit is available.
+Status, 2026-10-09 Lisbon: `tools/rda_flash.py` has an audited host implementation and
+offline fault tests. **It is pinned to the clean programmer build `c238911d…6c65`,
+which started on 417 in a separately authorized start-only run:** READY 0.54 s
+after execute, mailbox, flash layout and JEDEC `c8 60 16` at the pinned addresses,
+and two full reads through the programmer identical to the pre-start read.
+Physical RST restored vendor USB; the recovery reads differ only by the vendor
+firmware's per-boot record. The unmodified SDK build `8a3ea625…9dd1` never reaches
+READY and the writer now refuses it.
+See [the run report](v24-programmer-start-2026-10-09.md).
+A later [query run](v24-programmer-start-2026-10-09.md#query-run-1-the-first-mailbox-commands-answer-and-the-flash-reads-back-unchanged)
+on 417 sent the writer's start-up check: PING on both mailbox slots and
+GET_FINALIZE_INFO answered, and the flash read back unchanged.
+A [write test](v24-programmer-start-2026-10-09.md#write-test-run-1-program-and-erase-work-and-the-flash-ends-as-it-started)
+then programmed both ends of blank sector `0x3e0000` on 417 and erased it: both
+commands worked and the flash ended identical to the pre-start read.
+END has never been sent to a tracker, no used sector has been written and no
+restore has been qualified. Original `1403167417` remains blocked in the writer; its gates
+are unchanged. The flash variant and status registers are still unqualified.
+The user reported on 2026-10-08 that five
+spare units are on hand. One, `1403167412`, was connected on 2026-10-09: its factory
+block gives IMEI `869214031674127`, whose digits 5-14 are the label's ID. Two backups
+of two passes each are in `firmware/backup/` (`v24_1403167412_2026-10-09_a_flash.bin`
+and `_b_`), all four passes identical, SHA-256 `b0250296…a2c4`. Its code,
+`0x000000`-`0x360000`, is byte-identical to 417's, word 0 is `0xd9ef0045`, and block
+`0x3e0000` is blank. Nothing has been written to it. The other four are untouched.
+At 22:45 UTC the same day a forced warm reset did bring up the ROM monitor on the
+original (`Coolsand Usb`, handshake answered); see
+[Run B](v24-loader-audit-2026-10-08.md#run-b-forced-rom-entry-works-on-1403167417).
+Statements below that ROM entry failed predate it.
 
 The later [cached-ID and startup review](v24-cached-flash-id-review.md) identifies
-the vendor's cached JEDEC bytes at `0x81c01f51..53`, obtainable with one four-byte
-read at `0x81c01f50`; that read awaits approval. Vendor and built-programmer
+the vendor's cached JEDEC bytes at `0x81c01f51..53`. The authorized four-byte read
+at `0x81c01f50` succeeded at 17:29:58 UTC: `c8 60 16`, GigaDevice, 4 MiB,
+writer ID `0x1660c8`. Exact part variant and current QE/status remain unverified.
+Vendor and built-programmer
 flash clock/config constants match (`9` and `0x291`), and both contain the
 conditional QE write. Board photos are not a prerequisite for this identity read.
 
@@ -30,7 +56,7 @@ Run from the repository root; these commands never import PyUSB or discover USB:
 .venv/bin/python -m unittest discover -s tools -p test_rda_flash.py -v
 
 .venv/bin/python tools/rda_lod_audit.py \
-  firmware/live/usb-programmer-build/artifacts/usb_8955_flsh_spi32m_ramrun.lod
+  firmware/live/usb-programmer-build/clean/artifacts/usb_8955_flsh_spi32m_ramrun_noclk_200ma.lod
 ```
 
 The first example prints `OFFLINE_PLAN`, all image hashes, `sectors: []`,
@@ -47,9 +73,12 @@ operator; a generic USB serial number does not establish it.
 ## What the writer does
 
 The pinned LOD SHA-256 is
-`8a3ea6257de0c4d584d9f04d8e19db73ee54d8eee0a47fc3ddcaebb2f8af9dd1`.
+`c238911dc478363b1dffdebbffcc407e6e1b1b51ef5c53c9d90ca2fe8bff6c65`: the SDK's USB
+programmer without its 104 MHz clock request and with the V24 charge current.
 The [source/binary audit](v24-loader-audit-2026-10-08.md#host-writer-audit)
-records protocol details and the exact build.
+records protocol details for the unmodified build, and the
+[re-pin review](v24-programmer-start-2026-10-09.md#writer-re-pinned-to-the-clean-build)
+records what changed and what was checked again for this one.
 
 Execution requires one device already in `Coolsand Usb` ROM mode. The writer
 checks its handshake and full 24 KiB ROM hash, makes two matching full-flash reads,
@@ -114,7 +143,7 @@ Paths are relative to the qualification file's directory (absolute paths also wo
   "unit": "PHYSICALLY-CONFIRMED-SPARE-ID",
   "backup_sha256": "BASELINE-SHA256",
   "source_sha256": "REVIEWED-TARGET-SHA256",
-  "programmer_sha256": "8a3ea6257de0c4d584d9f04d8e19db73ee54d8eee0a47fc3ddcaebb2f8af9dd1",
+  "programmer_sha256": "c238911dc478363b1dffdebbffcc407e6e1b1b51ef5c53c9d90ca2fe8bff6c65",
   "rom_sha256": "3946ea195270620f0907997f96f32fbaa1e2ab405146235fef2afb5f3c4680d7",
   "flash_jedec_id": null,
   "evidence": {
@@ -139,7 +168,7 @@ to the plan command for that spare and its reviewed image. There is no USB acces
 
 Only after those gates and the hardware experiment decision are complete, the
 same command may use `--execute` instead of `--check-qualification`, plus
-`--lod firmware/live/usb-programmer-build/artifacts/usb_8955_flsh_spi32m_ramrun.lod`
+`--lod firmware/live/usb-programmer-build/clean/artifacts/usb_8955_flsh_spi32m_ramrun_noclk_200ma.lod`
 and `--journal firmware/live/<new-run-directory>`. Omit `--current`: execution
 always reads the device. This is a future spare procedure, not an instruction to
 flash the currently connected original. Do not run another tool holding USB at

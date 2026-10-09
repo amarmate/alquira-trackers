@@ -6,9 +6,10 @@ Which RDA8955 pin does what on the V24 board, read from the 2026-10-03 flash bac
 **Status, 2026-10-08:** the map comes from the firmware image and five photos of the opened
 unit. Two reads of the pad and GPIO registers on the live unit agree with it (section 7): one
 taken while it was off on the cable, for the lines the boot code sets up, and one taken after
-the power key started the tracker application, for the lines the application sets up. Which
-LED is on which pin is not confirmed: no pin has been driven on request yet. Function
-addresses refer to the decompile described in
+the power key started the tracker application, for the lines the application sets up.
+Driving the three LED pins on request, one at a time, confirmed them: GPIO 4 is the blue GPS
+LED, GPIO 27 the red SIM LED and GPIO 28 a strong white light between the two, all high = on.
+Function addresses refer to the decompile described in
 [the firmware analysis](v24-firmware-analysis.md), section 11.
 
 ## 1. How the pins were found
@@ -35,13 +36,13 @@ addresses refer to the decompile described in
 | `GPIO_0` | 0 | UART1 RXD, from the GPS | function 1 while the GPS is on, GPIO input when off | `gps_uart_open` `0x8804b658`, `gps_uart_close` `0x8804b5e0` |
 | `GPIO_1` | 1 | UART1 TXD, to the GPS | same | same |
 | `GPIO_2` | 2 | interrupt of the removal (proximity) sensor | input, interrupt | `hal_GpioOpen(0x20002)` in the LS98xx driver `0x8823111c` and the EM30719 driver `0x88237448` |
-| `GPIO_4` | 4 | blue LED (GPS) | output, high = on | `led_gps_set` `0x8819c3ec`; `rfhz_led_status` case -2 turns it off and is logged as `GK9501_Gps_Off` |
+| `GPIO_4` | 4 | blue LED, marked GPS | output, high = on | `led_gps_set` `0x8819c3ec`; `rfhz_led_status` case -2 turns it off and is logged as `GK9501_Gps_Off`; confirmed on the unit (section 7) |
 | `GPIO_6` | 6 | I2C3 SCL: accelerometer | function 2, or bit-banged | sensor table `0x8823b6b0` = bus 2; bit-bang table `0x8823b6b8` names GPIO 6 and 7 |
 | `GPIO_7` | 7 | I2C3 SDA: accelerometer | same | same |
 | `CAM_PWDN` | 19 | I2C2 SCL: removal sensor | function 2 | board table `i2c2Used`, `i2c2UseCamPins`; `light_hal_i2c_send` uses bus 1 (byte at `0x8201d308`) |
 | `CAM_RSTB` | 20 | I2C2 SDA: removal sensor | function 2 | same |
-| `KEYIN_2` | 27 | red LED (network) | output, high = on | `led_net_set` `0x8819c4e0`; pad set to GPIO with pull-up by `0x82001ea4` |
-| `KEYIN_3` | 28 | white LED | output, high = on | `sms_lsn_handle` `0x881b035c` ("LED light keeps on" writes 1); pad set to GPIO with pull-up by `0x82001eb8` |
+| `KEYIN_2` | 27 | red LED, marked SIM (network) | output, high = on | `led_net_set` `0x8819c4e0`; pad set to GPIO with pull-up by `0x82001ea4`; confirmed on the unit (section 7) |
+| `KEYIN_3` | 28 | white light, between the red and blue LEDs | output, high = on | `sms_lsn_handle` `0x881b035c` ("LED light keeps on" writes 1); pad set to GPIO with pull-up by `0x82001eb8`; confirmed on the unit (section 7) |
 | `KEYIN_4` | 29 | interrupt line of the WiFi chip (SDIO) | input, interrupt | `0x8804e30c` opens it before sending SDIO commands; id `0x2001d` at RAM `0x82017320` |
 | `KEYOUT_1` | 31 | not known | input, pull-up | set to input whenever the GPS UART closes; pad set to GPIO with pull-up by `0x82001edc`, the same setting as the two LED pads |
 | `KEYOUT_2` | 32 | GPS power enable | output, high = on | `open_GPS_power_TD` `0x8822faf4`, `close_GPS_power_TD` `0x8822fa84`; platform start-up `0x8803de3c` drives it high before the tracker application runs |
@@ -68,13 +69,14 @@ Pins the board table lists, with no tracker code found for them:
 | Accelerometer: SC7A20 | I2C3, interrupt on GPIO 34. Four drivers are tried in order: MC3413, MC3416, SC7A20, QMA6100P | driver table `0x8201d29c`; all four read `0x8823b6b0`. A trace from the running unit prints `SC7A20_eint_clear.` and `Gs:3` with changing x, y, z values (`firmware/live/reconnected-host-read.raw`); type 3 is the SC7A20 |
 | Removal sensor | optical proximity sensor LS98xx or EM30719 on I2C2, interrupt on GPIO 2 | strings `ls98xx remove!!!!`, `light em30719 found!` |
 | WiFi (RDA5990 or 5991, for scans) | SDIO, interrupt on GPIO 29, supply from the PMU's SD-card regulator | `pmd_EnablePower(7, …)` around the SDIO start in `0x8804e30c` |
-| Sounder | the PMU's vibrator output | `hon_alarm_stop` (`0x881ada64`) switches level id 8, which the PMU table maps to the vibrator regulator; the board has wired pads marked `+MOTO` (section 4) |
-| LEDs | GPIO 27 red, GPIO 4 blue, GPIO 28 white, all high = on | section 2 |
+| Sounder | the PMU's vibrator output | `hon_alarm_stop` (`0x881ada64`) switches level id 8, which the PMU table maps to the vibrator regulator; the board has wired pads marked `+MOTO` (section 4). Sounded on request with `hon,3` (section 7) |
+| LEDs | GPIO 27 red (SIM), GPIO 4 blue (GPS), GPIO 28 strong white light, all high = on | section 2; each lit on request, section 7 |
 | Battery gauge | PMU ADC channel 7; charge ends at 4200 mV, restarts at 4150 mV; power-on needs 3400 mV | PMU table `0x8823b49c` |
 | USB | the SoC's own USB, on the magnetic cable | in use today |
 
-The red-or-blue assignment rests on one link: the log line `GK9501_Gps_Off` is printed with
-case -2, and case -2 switches off GPIO 4. Case -1 switches off GPIO 27.
+In the firmware, the red-or-blue assignment rests on one link: the log line `GK9501_Gps_Off`
+is printed with case -2, and case -2 switches off GPIO 4. Case -1 switches off GPIO 27.
+Driving GPIO 4 on the live unit lit the blue LED and GPIO 27 the red one (section 7), which agrees.
 
 ## 4. Seen in the photos (`pictures/`)
 
@@ -109,6 +111,10 @@ case -2, and case -2 switches off GPIO 4. Case -1 switches off GPIO 27.
 - Charging and solar input: handled on the flex board; how the SoC sees "charging" is not traced.
 - Whether the WiFi SDIO really uses the `SDMMC_*` pads.
 - The test pads on the main board.
+- Where `KEYIN_1` goes. The chip latches `KEYIN_0` to `KEYIN_3` at reset as boot-mode pins,
+  and `KEYIN_1` high forces the ROM monitor. `KEYIN_2` and `KEYIN_3`, the two LED lines above,
+  are among them and read low at reset. See the
+  [loader audit](v24-loader-audit-2026-10-08.md#rom-entry-without-the-vendor-firmware-offline-2026-10-09).
 - The boot sector's USB-download key, which the [loader audit](v24-loader-audit-2026-10-08.md)
   found as key code `0x4d`, matrix index 27. With eight lines per row that is `KEYIN_3` with
   `KEYOUT_3`. On this board those two pads are the white LED line and the 32 kHz clock line, so
@@ -203,16 +209,54 @@ running, the unit enumerated as `1782:3d00`. In that mode the log shows the GPS 
 (`GK9501_Gps_On`, NMEA sentences, `rfhz_led_status` case 12).
 
 - **Pin 28, level 1: sent once, 2026-10-08.** The firmware logged `gpiotest` and answered
-  `AT RETURN:gpiotest.` (log `firmware/live/2026-10-08-gpiotest-28-on.raw`). The user, who was
-  watching for a third LED, reported "LED is working properly"; which LED lit and its colour
-  are still to be written down. The battery figure in the status line fell from 95 to 89
+  `AT RETURN:gpiotest.` (log `firmware/live/2026-10-08-gpiotest-28-on.raw`). The user saw a
+  third LED come on, sitting between the blue LED (marked GPS) and the red LED (marked SIM).
+  It is a strong white light. The battery figure in the status line fell from 95 to 89
   within seconds of the command, which fits a load switching on but is not proof by itself.
 - **Pin 28, level 0: sent once, a few minutes later.** Same acknowledgement (log
   `firmware/live/2026-10-08-gpiotest-28-off.raw`). The battery figure rose from 89 to 91
-  over the next seconds. Whether the LED went dark has not been reported yet.
-- **Pins 4 and 27: not sent.** Their blink timers (ids `0x1ae` for GPIO 4, `0x1ad` for
-  GPIO 27, set up by `0x8819c67c`) write the pin at every step, so a forced level lasts only
-  until the next step. It can tell the two LEDs apart only while that LED is steady.
+  over the next seconds. The user did not report it going dark at that moment; later
+  reports of only the blue, then only the red LED lit mean it was off by then.
+- **Pins 4 and 27 need the blink timers stopped first.** The timers (ids `0x1ae` for GPIO 4,
+  `0x1ad` for GPIO 27, set up by `0x8819c67c`) write the pin at every step, so a forced level
+  lasts only until the next step. Re-sending the command quickly does not help: of five
+  `gpiotest,4,1` sent 0.6 s apart, the firmware logged and answered one. Do not send
+  commands in quick succession.
+- **`rfhzledtest,<n>`** is the firmware's own LED command: it calls `rfhz_led_status(n)`.
+  `tools/rda_config.py leds-off` sends `rfhzledtest,100`, which is outside the state table.
+  Sent once: the log showed `rfhz_led_status------n=100---rfhz_led_control_index=16`, then
+  `rfhz_led_status---case=default.` and `AT RETURN:rfhzledtest.` The default branch stops
+  both timers and switches both LEDs off (log `firmware/live/2026-10-08-leds-off.raw`).
+- **Pin 4, level 1: sent once, right after.** Acknowledged, and no LED state change was
+  logged in the following 12 s (log `firmware/live/2026-10-08-gpiotest-4-on.raw`). The user
+  saw only the blue LED, marked GPS, lit. **GPIO 4 is the blue GPS LED, and high = on.**
+- **Pin 4, level 0, then pin 27, level 1: each sent once.** Both acknowledged, no LED state
+  change logged (logs `firmware/live/2026-10-08-gpiotest-4-off.raw` and `-27-on.raw`).
+  The user saw only the red LED, marked SIM, lit. **GPIO 27 is the red SIM LED, and high = on.**
+- **Clean-up.** Pin 27 was set back to 0, then `reset` was sent and acknowledged
+  (`AT RETURN:reset.`, log `firmware/live/2026-10-08-reset-after-led-test.raw`) so the
+  firmware takes its LEDs back. USB dropped as expected, but the unit had not enumerated
+  again five minutes later, unlike after the resets of 2026-10-02. It came back as
+  `1782:3d00` about eleven minutes after the reset, once the user had unplugged the cable
+  and plugged it back in. `pwon_count` went from 78 to 79, so it restarted once (log
+  `firmware/live/2026-10-08-after-reset-log.raw`). Both times today the USB mode changed
+  only on a replug: after the power key, and after this reset.
+
+The user also saw the blue and red LEDs blink in step before the replug, out of step right
+after it, and in step again a few minutes later, so blinking in step is not tied to one USB mode.
+
+The same dispatcher has `poweroff`, `shutdown`, `gpson` and `gpsoff`; none has been sent.
+
+**Sounder, 2026-10-08.** `hon,<mode>` (handler `0x881b0804`) stops any buzzer alarm, saves the
+"buzzer alarm mode" (`set_hon_flag`, an NVRAM write) and, for mode 3, starts the alarm timer
+(id `0x1ac`, `0x881adb68(120000, 150)`). The timer switches PMU level id 8 on (`0x882143ec`)
+and off (`0x882143c8`). The power-on beep is the same timer, `0x881adb68(500, 500)`.
+`tools/rda_config.py buzzer-alarm --mode 3` sent `hon,3` once: the log showed
+`V34---hon_alarm_stop.`, `set_hon_flag---before-hon_flag=1.`, `set_hon_flag---after-hon_flag=3.`
+and `AT RETURN:hon.`, and the user heard the buzzer. About ten seconds later `--mode 1`
+stopped it and put the saved mode back to 1 (`set_hon_flag---after-hon_flag=1.`). Logs:
+`firmware/live/2026-10-08-hon-3.raw` and `-hon-restore.raw`. So the sounder is what PMU
+level id 8 drives; no GPIO is involved.
 
 ## 8. Fit with Logicrom
 
@@ -270,6 +314,8 @@ the licence over GPRS (`getlic` retries, `apn=<name>` sets the APN, both on the 
 The V24 is not one of the module types, so which one to declare is open. Activation needs
 the radio and the console to work first, so it cannot be tried before a core is flashed.
 
-Flashing: Logicrom's instructions use Coolwatcher or Ai-Thinker's update tool, both on
-Windows. This project has no proven way to write flash at all yet: see the
-[handoff](handoff-2026-10-03-flash-restore.md).
+Flashing update, 2026-10-09: the Mac USB programmer has now written flash, and
+spare 412 has recovered through RST with its boot word blank. A Logicrom image,
+blank-word trial installer and multi-block recovery path are prepared and tested
+offline; the multi-block hardware rehearsal and core compatibility remain pending.
+See [Logicrom trial preparation](v24-logicrom-trial.md).

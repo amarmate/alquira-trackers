@@ -1,5 +1,13 @@
 # V24 flash restore: implementation contract and evidence gates
 
+2026-10-09 Lisbon update: forced ROM access is now proven with double full-flash
+reads. A separately authorized start-only run on original 417 verified the RAM
+load and received ROM execution acknowledgement, but no programmer READY.
+RST restored vendor USB, and matching double recovery dumps preserve all code
+and protected bytes (533 runtime-data bytes changed across the run/reboot).
+See [run report](v24-programmer-start-2026-10-09.md). No flash command was sent;
+writer qualification gates below remain unchanged. Earlier status is historical.
+
 2026-10-08 latest: the user explicitly requested implementation and qualification
 of the host writer, superseding the earlier approval-before-coding requirement.
 `tools/rda_flash.py` now implements the offline planner and a guarded spare writer;
@@ -9,8 +17,9 @@ see [operator instructions](v24-flash-writer.md) and the
 
 The USB programmer is built and the original's ROM matches the SDK, but forced
 ROM enumeration failed. Original `1403167417` recovered its vendor interface
-after RST/reconnection and remains blocked from writer execution. Only that unit
-is available. There were no USB actions during writer implementation/audit.
+after RST/reconnection and remains blocked from writer execution. The user
+reported on 2026-10-08 that five spare units are on hand; none has been connected,
+identified or dumped yet. There were no USB actions during writer implementation/audit.
 The off-laptop backup requirement remains waived; spare-backed destructive
 experiments and cold-recovery evidence remain pending. A good dump or locally
 hashed qualification JSON does not prove recovery.

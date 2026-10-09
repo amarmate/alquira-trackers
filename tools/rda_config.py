@@ -36,6 +36,20 @@ def build_command(args):
         if args.level not in (0, 1):
             raise ValueError('--level must be 0 or 1')
         content = f'gpiotest,{args.pin},{args.level}'
+    elif args.command == 'leds-off':
+        # rfhzledtest,<n> calls rfhz_led_status(n) (0x8819c714). 100 is outside its table,
+        # so it takes the default branch: both blink timers stopped, both LEDs off. The
+        # timers otherwise rewrite GPIO 4 and 27 at every step and undo a gpio-test.
+        # The LEDs stay off until the firmware next changes its LED state.
+        content = 'rfhzledtest,100'
+    elif args.command == 'buzzer-alarm':
+        # hon,<mode> stops any buzzer alarm in progress and saves the "buzzer alarm mode"
+        # (set_hon_flag, an NVRAM write; handler 0x881b0804). Mode 3 also sounds the buzzer
+        # at once, for up to 120 s. The log prints the mode it replaces as
+        # "set_hon_flag---before-hon_flag=<n>.": send that mode afterwards to put it back.
+        if args.mode not in (0, 1, 2, 3):
+            raise ValueError('--mode must be 0, 1, 2 or 3')
+        content = f'hon,{args.mode}'
     elif args.command == 'set-apn':
         # set_APN_data uses strcpy into a 32-byte APN field (0x82200b50..b6f).
         if not args.apn or not re.fullmatch(r'[A-Za-z0-9.-]{1,31}', args.apn):
@@ -70,11 +84,15 @@ def acknowledged(args, reply):
         'reboot': b'AT RETURN:reset.',
         # Seen from unit 1403167417 on 2026-10-08 as "AT RETURN:gpiotest.".
         'gpio-test': b'AT RETURN:gpiotest',
+        'leds-off': b'rfhz_led_status---case=default.',
+        'buzzer-alarm': b'AT RETURN:hon.',
         'set-apn': b'AT RETURN:apn.',
         'set-server': b'AT RETURN:ip.',
     }[args.command]
     if expected not in reply:
         return False
+    if args.command == 'buzzer-alarm':
+        return f'set_hon_flag---after-hon_flag={args.mode}.'.encode() in reply
     if args.command == 'set-apn':
         return f'set_APN_data.p_APN_name:{args.apn}.p_UserName:.p_PassWd:.P_UserData:{args.plmn}.'.encode() in reply
     if args.command == 'set-server':
@@ -84,8 +102,10 @@ def acknowledged(args, reply):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command', choices=['status', 'get-apn', 'set-apn', 'set-server', 'reboot', 'gpio-test'])
+    p.add_argument('command', choices=['status', 'get-apn', 'set-apn', 'set-server', 'reboot', 'gpio-test', 'leds-off',
+                                             'buzzer-alarm'])
     p.add_argument('--pin', type=int)
+    p.add_argument('--mode', type=int)
     p.add_argument('--level', type=int)
     p.add_argument('--apn')
     p.add_argument('--plmn')

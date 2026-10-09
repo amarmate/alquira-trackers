@@ -2,8 +2,52 @@
 
 The user supplied another model's analysis. The findings below were checked
 against local vendor decompilation, the pinned SDK sources and built-programmer
-disassembly. No tracker command was sent in this review. The single cached-ID
-read awaits the approval explicitly requested in the supplied procedure.
+disassembly. No tracker command was sent in the source review. The user authorized
+the single cached-ID read on 2026-10-08. It succeeded after two USB preflight
+aborts: cached JEDEC bytes `c8 60 16`, GigaDevice, 32 Mbit (4 MiB).
+
+## Authorized live read — 2026-10-08
+
+At 17:25:11 UTC (18:25:11 Lisbon), `tools/rda_flash_identity.py --read` stopped
+with `Expected exactly one 1e04:0900 tracker; no request sent`.
+Log: `firmware/live/2026-10-08T172511Z-cached-flash-identity.jsonl`.
+A subsequent USB descriptor inventory found one device, `1782:3d00`; the required
+`1e04:0900` vendor debug interface was absent. The descriptor observation is saved
+in `firmware/live/2026-10-08-cached-flash-identity-usb-state.jsonl`.
+
+After the user asked to continue, another preflight at 17:29:27 UTC also stopped
+without sending a request (`2026-10-08T172927Z-cached-flash-identity.jsonl`).
+The subsequent ten-second descriptor watch reported zero visible USB devices
+(`2026-10-08T172927Z-cached-flash-identity-usb-state.jsonl`). Later, macOS IORegistry
+showed a Coolsand device, and the descriptor check logged `1e04:0900`, `RDA Usb`
+(`2026-10-08T172953Z-cached-flash-identity-usb-state.jsonl`). These observations do
+not establish why USB was temporarily absent or exactly when it returned.
+All logs named here are under `firmware/live/`.
+
+At 17:29:58 UTC (18:29:58 Lisbon), the single read succeeded. Evidence:
+`firmware/live/2026-10-08T172957Z-cached-flash-identity.jsonl`.
+
+| Field | Observed value |
+| --- | --- |
+| RAM address / size | `0x81c01f50` / 4 bytes |
+| Request | `ad 00 07 ff 02 50 1f c0 81 03 f0` |
+| Validated response | `ad 00 06 ff 03 01 c8 60 16 43` |
+| RAM bytes / little-endian word | `01 c8 60 16` / `0x1660c801` |
+| `checkirq` byte | `0x01`, separate from the JEDEC ID |
+| JEDEC manufacturer / type / capacity | `c8 60 16` |
+| Writer's packed ID | `0x1660c8` |
+
+The pinned SDK's `soft/platform/edrv/memd/include/memd_m.h` maps manufacturer
+`0xc8` to GigaDevice (line 517), type `0x60` to its 1.8 V family (line 535), and
+capacity `0x16` to 32 Mbit (line 557), or 4 MiB. The type mapping is not a board
+voltage measurement. The exact part suffix/package/revision remains unverified.
+The leading `0x01` is the live `checkirq` value, not a fourth JEDEC byte.
+
+Across these attempts, exactly one tracker memory-read request was sent. Its
+response framing and checksum passed validation. No reset, USB configuration
+change, programmer launch, SPI command or memory write was sent. This result
+establishes the boot-cached ID; QE/status and the cause of the ROM recovery failure
+remain unmeasured. The read does not identify the physical tracker unit.
 
 ## Cached identity: verified read location
 

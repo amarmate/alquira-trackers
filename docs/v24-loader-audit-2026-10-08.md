@@ -1,11 +1,34 @@
 # V24 RAM programmer audit — 2026-10-08
 
-Latest status: host writer implemented and audited offline; see
+Update, 01:04 Lisbon on 2026-10-09: the cause of the missing READY below is found
+and a diagnostic build starts on 417. The stock programmer calls
+`hal_SwRequestClk` without the clock framework ever being initialised, so the
+pinned LOD cannot reach READY as built. With that one call removed the
+programmer reached READY, reported JEDEC `c8 60 16`, and two full flash reads
+through it matched the pre-start read. The entry point is `boot_Sector`, not the
+loader, so the start-up section further down is incomplete. Details, evidence
+and what is still open are in
+[the run report](v24-programmer-start-2026-10-09.md). Flash writing is still
+not qualified. The paragraph below predates this.
+
+Latest result, 2026-10-09 Lisbon: the user-authorized start-only experiment on
+417 verified the full RAM load and received ROM execution acknowledgement, but
+no programmer READY within 30 seconds. No mailbox/erase/program/finalize command
+was sent. Physical RST restored vendor USB; two matching recovery dumps confirm
+unchanged code and calibration/factory bytes, with 533 changed runtime-data bytes
+after reboot. See [start-only run and recovery](v24-programmer-start-2026-10-09.md).
+No successful programmer startup or flash-write qualification is established.
+Earlier status statements below are chronological.
+
+Previous status: host writer implemented and audited offline; see
 [host writer audit](#host-writer-audit) and [operator guide](v24-flash-writer.md).
 Later [cached-ID and startup review](v24-cached-flash-id-review.md) verifies a
 single vendor-RAM read location and matching vendor/programmer SPI settings
-(`9`, `0x291`); the read itself awaits approval. It also qualifies the ROM
-timeout and UART-diagnosis claims. No reset was performed in that review.
+(`9`, `0x291`). After two USB preflight aborts with no request sent, the authorized
+single read succeeded at 17:29:58 UTC: cached JEDEC `c8 60 16`, GigaDevice, 4 MiB,
+writer ID `0x1660c8`. Exact part variant and current QE/status remain unverified.
+The review also qualifies the ROM timeout and UART-diagnosis claims. No reset was
+performed in that review or the cached-ID read.
 No hardware qualification or live flash write has occurred. Earlier status
 statements below are chronological, including “no writer implemented”.
 
@@ -364,6 +387,12 @@ The LOD remains SHA-256
 `8a3ea6257de0c4d584d9f04d8e19db73ee54d8eee0a47fc3ddcaebb2f8af9dd1`;
 this continuation did not rebuild or change it.
 
+Note, 2026-10-09: this build never reaches READY, and the writer is now pinned to
+the clean build `c238911d…6c65`. The addresses in this section are the unmodified
+build's; the
+[re-pin review](v24-programmer-start-2026-10-09.md#writer-re-pinned-to-the-clean-build)
+gives the new ones and what was checked again.
+
 ### Protocol and binary findings
 
 | Item | Source/binary basis and host behavior |
@@ -425,3 +454,804 @@ Remaining hardware gates and evidence-generation instructions are in
 [the operator guide](v24-flash-writer.md#qualification-evidence-still-needed).
 The original remains unqualified and blocked; offline tests do not establish a
 safe live write or cold recovery.
+
+## Control for the forced-ROM test: a plain reset also goes dark
+
+The forced-ROM test above was judged by USB not returning. It had no control.
+`tools/rda_rom_recovery.py --plain-reset` now sends the same debug reset after the
+same checks, without writing the force bit.
+
+Run A, 22:32 UTC on 2026-10-08, unit `1403167417` off on the cable, `1e04:0900`:
+`Reset_Cause=0x00200000`, one reset frame `ad 00 07 ff 84 00 00 00 00 01 7a`, USB
+gone 0.11 s later and no USB device for the full 120 s. A descriptor check at
+22:34:54 UTC still found none. The user reports not touching the cable and not
+watching the LEDs during the window.
+Logs, under `firmware/live/`: `2026-10-08T223231Z-run-a-plain-reset.jsonl`,
+`2026-10-08T223215Z-control-test-usb-state.jsonl` (before) and
+`2026-10-08T223454Z-after-run-a-usb-state.jsonl` (after).
+
+Afterwards the user saw both LEDs blinking in step, then unplugged and replugged
+the cable without pressing RST. At 22:38:28 UTC the unit was on USB as `1782:3d00`
+(`2026-10-08T223828Z-after-replug-usb-state.jsonl`). `AT:ts#` answered with
+`ID:1403167417` and `pwon_count:80`; the count was 79 after the 18:04 reset
+(`2026-10-08T223900Z-status-after-run-a.raw`).
+
+What this shows:
+
+- The plain reset restarted the vendor firmware into the running application: the
+  LEDs blink, the count rose by one, and the unit that was off on the cable is now on.
+- USB stayed off until the cable was replugged, and the replug did not restart
+  the unit: the count did not rise again. My reading is that the application
+  starts USB only on a cable plug event.
+- So "no USB after the forced reset" does not show that ROM entry failed: the
+  control gives the same observation. Whether the ROM monitor ran is open again.
+
+A reading of the 17:00 forced test in this light, not a result: after that reset
+the replug brought back `1e04:0900`, the off-on-the-cable mode, not `1782:3d00`.
+So the application was not running when the cable came out. That fits a ROM
+monitor waiting without USB and losing power on the unplug, because nothing had
+told the PMU to hold power. It fits a hang equally. The RST press in the same
+minutes means the record cannot separate them.
+
+## Run B: forced ROM entry works on `1403167417`
+
+22:45 UTC on 2026-10-08, unit off on the cable in `1e04:0900`; a pad read a minute
+earlier showed the application not running (`KEYIN_2` `0x0`, accelerometer type 0,
+`2026-10-08T224343Z-pin-state-before-run-b.jsonl`). Same tool, force bit set, 120 s
+window. Log: `firmware/live/2026-10-08T224504Z-run-b-forced-reset.jsonl`.
+
+| Time after the reset | Observation |
+| --- | --- |
+| before | `Reset_Cause=0x00200000`; force write read back as `0x00220000` |
+| 0.11 s | vendor device going away (descriptor error) |
+| 0.32 s | no USB device |
+| 0.73 s | `1e04:0900` with interface `Coolsand Usb` |
+| 0.74 s | monitor start sent; ROM answered `ad 00 06 ff 00 01 00 00 ff 01` (`0xff000001`) |
+| 0.74 s | boot fields written back as `0x00200000`; read back `0x00350000`; tool stopped |
+| about 29 s | still `Coolsand Usb` (`2026-10-08T224534Z-after-run-b-usb-watch.jsonl`) |
+| about 30 s | device gone; no USB device for the following 59 s |
+
+So the ROM monitor enumerates within a second of a forced warm reset and answers
+the handshake. It left USB about 30 s after the reset, which matches
+`BOOT_IDLE_TIMEOUT`; `boot_HostUsbDecode` returns `CONTINUE` for every packet it
+parses, and the loop restarts the timer on `CONTINUE`, so a host that keeps
+sending commands should hold it. That has not been tried.
+
+Not explained: the boot-field readback. The write of `0x00200000` used the same
+frame form that worked in the vendor firmware, and the ROM's decoder maps reads
+to KSEG0 and writes to KSEG1 as the HAL does, yet the masked readback was
+`0x00350000` (mode `0x35`, force bit clear). The tool logged only the masked
+value, and no read was taken before the write, so it is not known whether the
+write took effect or what the register held on entry. Not known either: whether
+the force bit is still set, and what the unit did after leaving the monitor.
+
+About the 17:00 test: that run's tool stopped on a descriptor error at the moment
+of disconnect, the same transient seen here at 0.11 s, so nothing was watching in
+the first seconds. My reading is that the ROM came up then too. One thing does
+not fit: a 3 s check about 17 s after that reset found no USB device, inside the
+30 s in which the monitor should have been present.
+
+## Read-only ROM session on `1403167417`: ROM hash and two full flash reads
+
+22:56 UTC on 2026-10-08, unit off on the cable. `tools/rda_rom_recovery.py` now
+writes no register in ROM mode and, after the handshake, uses the writer's own
+`Monitor.read`. Log: `firmware/live/2026-10-08T225652Z-rom-session.jsonl`.
+A first start at 22:54 stopped in its preflight on `Reset_Cause=0x00350000`
+before sending any write or reset (`2026-10-08T225432Z-rom-session.jsonl`).
+
+| Step | Result |
+| --- | --- |
+| Preflight, vendor firmware | `Reset_Cause=0x00350000`; wrote `0x00220000`, read back `0x00220000` |
+| Reset | `Coolsand Usb` 0.73 s later; handshake `0xff000001` |
+| `Reset_Cause` read in ROM mode, nothing written | `0x00220000` |
+| ROM `0xa1e00000`, 24 KiB | SHA-256 matches `3946ea19…80d7` |
+| Flash `0xa8000000`, 4 MiB, twice | 31.0 s and 30.9 s; the two reads are identical |
+| `Reset_Cause` at the end | `0x00220000` |
+| Monitor exit `ad 00 07 ff 84 05 00 00 00 fe 80` | device gone 0.9 s later; no USB in the next 19 s |
+
+The flash image is saved as `2026-10-08T225652Z-rom-session.flash.bin`, SHA-256
+`148c0d4240b3fb49160afe0c030628f774e2cebec060cf1d1ae3e64c4bb32f62`. Against
+`firmware/backup/v24_1403167417_2026-10-03_flash.bin`: the first 1 KiB matches,
+`[0x3fa000,0x400000)` matches, and 68,453 bytes differ in 40 sectors of 4 KiB, all
+between `0x37a000` and `0x3d9fff`. That range is outside the code; what the
+firmware keeps there has not been checked.
+
+What this settles:
+
+- The monitor stayed up for 62 s while requests kept coming, past the 30 s idle
+  limit.
+- The writer's read frames, handshake and ROM check work against the real ROM.
+  These are the steps `rda_flash.py` runs before it loads anything.
+- Run B's `0x00350000` came from that run's write in ROM mode, not from the ROM:
+  with no write, the register read `0x00220000` on entry and at the end. The
+  SDK's ROM source copies a non-internal USB write with `memcpy`
+  (`boot/8955/src/boot_usb_monitor.c:415` and `:424`), where the HAL has separate
+  8, 16 and 32-bit write states. How that produces `0x35` is not worked out. Do
+  not write registers in ROM mode with this frame.
+- The value survived the user's power-key off and the restart into the
+  off-on-the-cable state, so that transition does not reset this register.
+
+Left as it is: the force bit is still set. Until RST, a power loss or a write of
+`0x00200000` through the vendor firmware, each warm reset waits 30 s in the
+monitor before it boots. Not tested: loading or starting the programmer, any RAM
+write in ROM mode, any flash command.
+
+The user saw both LEDs dark for a long stretch during this session, which fits
+the minute spent in the monitor with no firmware running.
+
+## What the programmer's start-up touches on this board (offline)
+
+Read from the pinned SDK, the built ELF's map and `programmer-disassembly.txt`.
+No device request was sent. This narrows the `board_ram_power` question; it does
+not replace a live start.
+
+- **No board pin setup runs.** `flash_programmer/Makefile:38` exports
+  `BOOT_MONITOR_NO_HAL_OPEN`, and the built `boot_Loader` calls `main` at
+  `0x81c01320`, before `tgt_GetHalConfig` and `hal_Open` at `0x81c013f8` and
+  `0x81c01400`. `main` does not return, so `hal_Open`, and `hal_BoardSetup` under
+  it, are linked but not reached. The `TGT_HAL_GPIO_*` table of the `8955_ramrun`
+  target is therefore not applied; pads stay as the ROM left them.
+- **No supply is switched by a GPIO.** Every `power[]` and `level[]` entry of that
+  target's `TGT_PMD_CONFIG` is a PMU regulator or `NONE`
+  (`target/8955_ramrun/include/tgt_board_cfg.h`, from line 481).
+- **Switchable regulators start off, USB stays on.** All `powerOnState` values are
+  `FALSE`: microphone, camera, audio, SD/MMC, LCD, I2C. On the V24 those feed the
+  WiFi chip and the sensors. USB is the exception: the built
+  `pmd_UsbDownloadByMicDetect` at `0x81c067f0` is only `pmd_EnablePower(6, 1)`.
+- **Battery limits equal the vendor's**: 4200 mV end of charge, 4150 mV recharge,
+  3400 mV power-on, gauge on GPADC channel 7.
+- `main` (`flash_programmer.c:416-425`) then sets idle power mode, requests
+  104 MHz, closes the watchdog and opens the SPI flash, as already audited.
+
+Not checked: the fixed PMU register writes inside `pmd_Open` against the vendor's
+own; the charge current (`PMD_CHARGER_400MA` here, vendor value not decoded); and
+whether PSRAM answers on the first buffer check when started from the ROM monitor.
+If it does not, `main` cuts memory power for 2 s, re-opens RAM and flash and checks
+again (`flash_programmer.c:427-447`). `rda_flash.py` stops at the first failure
+event, so a start-only run should record every event instead of stopping there.
+
+## Two more entry leads from the vendor code
+
+Read from the decompile and the pinned SDK only. No device request was sent.
+
+### The vendor build has the SDK's mic-detect USB download check
+
+Vendor `FUN_82012aac` (`firmware/decompiled/82010000.c:1627`) matches the SDK's
+`pmd_UsbDownloadByMicDetect` (`soft/platform/edrv/pmd/pmu_8955/src/pmd.c:4353`)
+step for step, including the event `0x0DE00000 | mv`. It runs when the PMU driver
+starts and restarts into the ROM monitor when all of these hold:
+
+| Condition | SDK | Vendor |
+| --- | --- | --- |
+| Normal power-on | `hal_SysGetResetCause() == HAL_SYS_RESET_CAUSE_NORMAL` | `FUN_82004054() == 0`; matched by position, not traced |
+| Feature built in | `tgt_GetUsbDownloadByMicDet` under `USB_DOWNLOAD_BY_MIC_DET` | `FUN_88001020` returns 1 with `lo = 0x400`, `hi = 0xffffffff` |
+| Charger present | `RDA_PMU_CHR_AC_ON`, bit 7 of the charger status | PMU register `0x14`, bit 7 |
+| Earpiece GPADC reading | `mv >= lo && mv <= hi` | value from the channel at config offset `0x14c`, 1024 or more |
+
+It then switches USB power on, stores boot-sector command `0x4e6a821c` (the same
+command the `0xEE` path stores), flushes the data cache and soft-resets through
+`FUN_82000e84`. It does not go through `FUN_82000ebc`, the restart that holds a
+USB reset for 8000 ticks first.
+
+So the board has a built-in way into download mode: power on with the cable in
+while that GPADC input is held at 1.024 V or more. The channel is 1
+(`HAL_ANA_GPADC_CHAN_1`): the PMD config is at `0x8823b49c` (`tgt_GetPmdConfig`),
+and the word at offset `0x14c`, file offset `0x23b5e8`, is `1` in both backups of
+`1403167417`. In the same table the earpiece and USB power-on states (offsets
+`0x4e` and `0x36`) are both 0. Not known: which pad or connector pin carries
+channel 1, and whether this entry enumerates where the two warm restarts did not. Its destination is the same ROM monitor. What
+differs is that it runs at power-on, before the application has changed clocks
+and power; that this matters is my reading, not a result.
+
+### Starting the programmer from the running firmware
+
+The SDK's USB decoder runs an execute command without a restart
+(`hal_usb_monitor.c:339`; the comment at line 308 names fastpf). In the vendor
+decompile the only caller of ROM `boot_HstCmdBasicHandler` (`0x81e01628`) is
+`FUN_82002718` (`82000000.c:2733`), which reads `0xa1a3f010` and acts on `0xee`
+and `0xff`. My reading is that `0xa1a3f010` is the host UART port's status
+register, so this is the UART path. The vendor's USB decoder branch for the same
+command has not been found, and no caller of `boot_HstMonitorX` appears in the
+decompile. Whether an execute command sent over USB reaches the executor is open.
+
+## ROM entry without the vendor firmware (offline, 2026-10-09)
+
+Every entry so far was asked for through the vendor firmware. Once that firmware
+is replaced, its `0xEE` request, its mic-detect check and its USB decoder are
+gone. This section is what the chip offers with nothing from flash. It is all
+reading: nothing was sent to a tracker.
+
+Sources, saved in `firmware/live/2026-10-09-rom-entry-audit/` with hashes: from
+the SDK at commit `b2b6287`, `boot_rom.S`, `bootp_mode.h`, `boot_host.c`,
+`boot_sector.h`, `sys_ctrl.h`, `debug_host_internals.h`, `hal_abb_config.c`,
+`halp_abb_regs.h` and `hal_usb.c`; and `8955_hard.xml`, RDA's register map for the chip, from
+`pulkin/csdtk42-linux` at commit `0501320`. `boot_monitor.c` was already in the
+loader-audit directory.
+
+### What the ROM does before any flash code runs
+
+Each row was checked in 417's own ROM dump (`2026-10-08-after-rst-snapshot/rom.bin`,
+SHA-256 `3946ea19…80d7`), not only in the source.
+
+| Step | Source | In 417's ROM |
+| --- | --- | --- |
+| Raises the wake-up line, which keeps the power on | `boot_rom.S:104-108` | `0x81e00034`: writes 1 to `0xa1a000a4` |
+| Takes the boot mode from `Reset_Cause >> 16` | `boot_rom.S:172-176` | `0x81e00084`: shift by 16, stored at `0x81c001a8` |
+| Enters the monitor if FORCE_MONITOR is set or flash word 0 is not `0xd9ef0045` | `boot_monitor.c:131-139` | literals `0x88000000`, `0xd9ef0045`, `0x81c001a8` and the tests against masks 2, 4 and 8, all in `0x81e00400`-`0x81e0054f` |
+| Opens USB unless USB_MONITOR_DISABLE is set; opens the UART monitor only with UART_MONITOR_ENABLE | `boot_monitor.c:152-173` | calls to `boot_HostUsbClockEnable`, `boot_UsbOpen`, `boot_HostUsbOpen`, `boot_UartMonitorOpen` |
+| Leaves on the 30 s idle limit only while word 0 is valid; with a bad word it stays | `boot_monitor.c:229-240` | literal `0x00078000`; the branch was read in the source, not decoded from the dump |
+| On leaving, jumps to flash `0x88000010` whatever word 0 holds | `boot_monitor.c:89-93` | literal `0x88000010` in `boot_Monitor` |
+
+### Three ways in that need nothing from flash
+
+**1. A strap: `KEYIN_1` high at reset.** The register map's keypad entry says:
+"The Key In pins 0 to 5 are muxed with the boot mode pins, latched during Reset.
+Key_In 0: BOOT_MODE_NO_AUTO_PU. Key_In 1: BOOT_MODE_FORCE_MONITOR. Key_In 2:
+BOOT_MODE_UART_MONITOR_ENABLE. Key_In 3: BOOT_MODE_USB_MONITOR_DISABLE." Its
+`Reset_Cause` entry says the field holds "the state of boot mode pins latched
+during Reset" and "is not reseted by a software or host reset". The bit is the
+one `rda_rom_recovery.py` sets by a register write, so the monitor it leads to is
+the one Run B reached.
+
+On this board: 417 has read boot mode `0x20` after each RST so far, so `KEYIN_0` to
+`KEYIN_3` are low at reset. `KEYIN_2` and `KEYIN_3` are the red LED and white
+light lines ([pin map](v24-pin-map.md)); their being low is what leaves the USB
+monitor on. `KEYIN_1` is GPIO 26, in the board's keypad mask, with no tracker
+code found for it. Where it goes on the PCB is not known, nor whether the
+tracker's button is on it.
+
+**2. The host UART pads.** The debug host is hardware, not code. Its internal
+register `CTRL_SET` has `Debug_Reset` and `XCPU_Force_Reset` ("Hold XCPU in reset
+state until this bit is cleared"), its own clock divider defaults to 921,600
+baud, and `boot_Monitor` forces it on at every boot (`boot_monitor.c:76`).
+Coolwatcher's `enterHostMonitor` (`8809-target_executor.rb:54-100`) reads
+`Boot_Mode`, sets bit 1, restarts the target and then unfreezes the CPU, with the
+comment "for example, when the code loaded into a phone crashes early after the
+boot". Those are the two commands `rda_rom_recovery.py` sends over USB; over the
+UART Coolwatcher also sets bit 3, which turns the USB monitor off, and we would
+not. My reading is that the same two commands over these pads work whatever is
+in flash, and that the ROM then comes up on USB for the existing tools. Not
+tested. It needs the pads found (`HST_RXD`, `HST_TXD`, ground), a USB-serial
+adapter, and a serial sender, which the repo does not have; the UART's byte
+framing has not been compared with the USB one.
+
+**3. A bad word 0.** With anything but `0xd9ef0045` at flash offset 0 the ROM
+enters the monitor by itself at every start and does not time out. This is the
+state an interrupted install leaves, since the writer programs that word last.
+It also allows a trial install: write a new firmware without the word, start it
+with the monitor's exit command (the ROM then jumps to `0x88000010`), and program
+the word only once the firmware is seen to run. The SDK's boot sector source
+does not read the word; whether Logicrom's core does was not checked.
+
+### What is still not proven
+
+All three end in the ROM's USB monitor, and all runs of it so far came after the
+vendor firmware had run in the same power session. The ROM does not set up power
+itself: the only ROM call to any `boot_Ispi*` function is `boot_IspiOpen` from
+`boot_Monitor` (found by listing every MIPS16 `jal` in the dump against the map's
+symbols; calls through pointers are not covered), so it never writes the PMU or
+the analog block, and `boot_HostUsbClockEnable` only starts the PLL. Whether USB
+enumerates then depends on the power-on defaults of the USB regulator and of the
+PHY power-down bit (`ABB_PD_USB`, analog register 4 bit 0). The register map
+gives the PHY bit a reset value of 0, powered, with `usb_ctrl` resetting to the
+value the SDK writes when it enables the PHY (`abb`, `usb_control_04H`). It gives
+no reset values for the PMU, so the regulator's default (`pd_vusb_pon`, register
+`0x0d`) is not documented. `pmd.c:372` says the regulator "should be always on"
+because memory power derives from it, which is a hint, not a measurement.
+
+No test without a flash write shows the ROM's USB after a hardware reset. RST
+clears the force bit, and it also clears the software boot-mode bits, which hold
+the flag that makes the boot sector trust a saved "enter monitor" command
+(`BOOT_SECTOR_STRUCT_VALID_BOOT_MODE`, `boot_sector.h:57-62`). So writing that
+command to RAM and pressing RST would do nothing.
+
+So the open question is narrower than before: does `Coolsand Usb` appear when the
+ROM is the first thing to run after power is applied? Route 1 can answer it with
+no flash write: hold `KEYIN_1` high, apply power, watch USB.
+
+### Tests this suggests (none run)
+
+1. Hold the tracker's button, press RST with the cable in, and watch USB with
+   `rda_usb_watch.py`; afterwards read `Reset_Cause` with `rda_boot_mode.py`.
+   `0x0022…` and a `Coolsand Usb` port mean the button is the strap. It costs
+   nothing and may well show nothing.
+2. Find `KEYIN_1` among the test pads, then repeat with the pad held high through
+   a resistor: first with RST, then from fully off by plugging the cable in.
+3. Only with 2 passed, or with the host UART pads working: erase word 0 on a
+   backed-up unit and confirm the monitor returns by itself.
+
+On 2026-10-09 the user said the unit will not be opened again, which rules out
+test 2 and the host UART pads.
+
+### Button test on 417: the power button is not the strap
+
+Test 1, 12:20-12:48 UTC on 2026-10-09, unit `1403167417` on the cable. Evidence:
+`firmware/live/2026-10-09-button-rst/`.
+
+| Time (UTC) | Observation |
+| --- | --- |
+| 12:20:53 | `1e04:0900`, `RDA Usb`; `Reset_Cause=0x00200000`, boot mode `0x20` |
+| 12:22:03 | The user held the power button and pressed RST. Vendor device gone |
+| to 12:26:05 | No USB device from the tracker: no `Coolsand Usb`, no vendor port (`rda_usb_watch.py`, five 60 s logs) |
+| to 12:41:18 | Still none (a poll with the same `snapshot`, not logged to a file) |
+| 12:46:44 | `1782:3d00` after the user unplugged and replugged the cable. The user reports the LEDs were blinking, and went dark 5 s after the cable came out |
+| 12:48:46 | `1e04:0900`, `RDA Usb`, after the user switched the unit off with the power button, cable in. No `Coolsand Usb` between |
+| 12:48:48 | `Reset_Cause=0x00200000`, boot mode `0x20` |
+
+The force bit did not latch, so the power button does not pull `KEYIN_1` high at
+reset. The restart with the button held went into the running application, which
+stayed off USB until the replug, as in Run A. Two things rest on earlier
+observations rather than this run: that the register keeps its value through a
+power-button off (seen on 2026-10-08 with the bit set), and that the unit did not
+lose power on the unplug (it came back in running mode, not off-on-the-cable).
+
+The test says nothing about the ROM's USB after RST: the monitor was not entered.
+
+### Next step without opening: a reset from inside the programmer session (prepared, not run)
+
+With the pads ruled out, what is left is the bad-word route, and its first risk is
+the restart: after block 0 is rewritten without the boot word, the chip has to be
+reset from inside the programmer session and the ROM's USB has to come back. No
+run so far has reset from that state; every entry reset was sent to the vendor
+firmware. The stock programmer's own RESTART command goes through
+`hal_SysRestart` (`flash_programmer.c:842-853`), the kind of restart the `0xEE`
+request used when no ROM port appeared on 2026-10-03. Why that one failed is not
+known, so the reset to use is the debug reset, which in a ROM session the ROM's
+own decoder handles (`boot_usb_monitor.c:294-304`).
+
+`rda_programmer_start.py --reset-test` tries that reset while the boot word is
+still valid: start, query, one debug reset, then the ROM port, its handshake and
+one full flash read equal to the pre-start read. It sends no flash command. If the
+ROM came back without USB it would leave its monitor after 30 s and boot the vendor
+firmware. The tool now takes `--unit 1403167412`, pinned to that unit's backup.
+Nine tests cover the new path; all 103 pass.
+
+```sh
+.venv/bin/python tools/rda_programmer_start.py --execute --reset-test --unit 1403167412 \
+  --journal firmware/live/2026-10-09-reset-test-412
+```
+
+Spare `1403167412`, read on 2026-10-09 before any of this: cached flash ID
+`c8 60 16`, `Reset_Cause=0x00200000`
+(`firmware/live/2026-10-09-spare-412/`).
+
+### Reset test run 1 on 412: the programmer starts; the ROM port does not return by itself
+
+13:07:43 UTC, 2026-10-09, run by the assistant after the user's "yes go". Journal
+and six 4 MiB reads: `firmware/live/2026-10-09-reset-test-412/`.
+
+| Elapsed | Result |
+| --- | --- |
+| 2.0 s | `Reset_Cause` `0x200000`, force bit written, debug reset sent to the vendor firmware |
+| 2.76 s | `Coolsand Usb` 0.72 s after the reset; handshake `0xff000001` |
+| 63.9 s | Two ROM reads, both SHA-256 `b0250296…a2c4`, the backup's |
+| 64.7 s | Programmer loaded and verified; READY 0.54 s after execute; JEDEC `c8 60 16` |
+| 82.8 s | Two reads through the programmer, identical |
+| 101.1 s | PING on both slots and GET_FINALIZE_INFO answered; two more reads identical |
+| 101.1 s | Debug reset `ad 00 07 ff 84 00 00 00 00 01 7a` sent inside the session; the transfer completed |
+| to 131.3 s | The tracker stayed listed as `1e04:0900` with no answer to string requests for the whole 30 s. No `Coolsand Usb`. Tool stopped |
+
+A watch 49 s after the reset found no USB device at all. The user pressed RST; at
+13:14:28 the unit was back as `RDA Usb` with `Reset_Cause=0x00200000`. A two-pass
+dump (`2026-10-09-spare-412/after-reset-test.flash.bin`) has the code and the
+calibration and factory blocks identical to the backup; 7057 bytes differ in five
+4 KiB sectors of the vendor's store (`0x382000`, `0x3a3000`, `0x3a7000`,
+`0x3ac000`, `0x3d4000`).
+
+What it establishes: the start-only and query steps work on a second unit, and a
+debug reset from inside the programmer session does not bring the ROM port back
+unaided. Had the boot word been blank, the unit would have been stuck there.
+
+My reading, not a result: the chip did reset and the ROM waited in its monitor,
+but nothing dropped off the bus, so the Mac kept the old device entry and never
+re-enumerated; the entry vanished when the ROM left at its 30 s idle limit and
+booted the vendor firmware. The ROM decoder resets immediately
+(`boot_UsbReset()` then the soft reset), where the vendor firmware's restart
+powers the USB PHY off and on first. The tool now waits one second, looks for
+the port, and otherwise asks the Mac for a port reset before looking again, all
+within 23 s of the reset.
+
+### Reset test run 2 on 412: the ROM port returns after a port reset from the Mac
+
+13:20:14 UTC, same day, same unit and build, with the change above. Journal and
+seven 4 MiB reads: `firmware/live/2026-10-09-reset-test-412-2/`.
+
+| Elapsed | Result |
+| --- | --- |
+| 1.95 s | `Coolsand Usb` 0.73 s after the entry reset |
+| 63.1 s | Two ROM reads identical, SHA-256 `d09af2e8…694c`, the dump taken after run 1 |
+| 63.9 s | Programmer READY 0.54 s after execute; JEDEC `c8 60 16` |
+| 100.2 s | Query answered; four more reads identical to the pre-start read |
+| 100.2 s | Debug reset sent inside the session |
+| 101.2 s to 103.2 s | Tracker listed as `1e04:0900`, no answer to string requests, as in run 1 |
+| 103.24 s | Port reset asked of the Mac (`usb.core.Device.reset`) |
+| 103.31 s | `Coolsand Usb`, 3.14 s after the debug reset and 0.08 s after the port reset |
+| 133.9 s | Handshake answered; full flash read through the ROM identical to the pre-start read |
+
+So the reading above holds: the reset from inside the programmer session does
+restart the chip into a working ROM monitor, and what was missing in run 1 was
+the Mac re-enumerating the port. The monitor served a 30 s read after it. No
+flash command was sent in either run.
+
+Not covered: a reset with the boot word blank, and RST. After RST the same port
+reset, or a replug, may be needed before the Mac sees the ROM; whether the ROM's
+USB works at all after RST is still the open question.
+
+After the user's RST at 13:23:40 the unit was back as `RDA Usb` with
+`Reset_Cause=0x00200000`.
+
+### Blank-word test, part one (prepared, not run)
+
+`rda_programmer_start.py --blank-word-test`, refused for the original unit. It is
+the first write to code on any tracker. After the usual start and query:
+
+1. ERASE block 0, check it reads blank, PROGRAM it back in sixteen 4 KiB chunks
+   with the boot word withheld, and require the whole flash to be the pre-start
+   image with that one word blank. No END.
+2. One debug reset, with the port reset from run 2, and the ROM handshake.
+3. 40 s with no USB traffic, then a full read. With a valid word the ROM leaves an
+   idle monitor at 30 s, so an answer here shows the blank word holds it.
+4. A fresh programmer and the writer's own `restore()`: ERASE, sixteen PROGRAMs,
+   full check, END, full check. The reset loses the programmer's "block 0 was
+   programmed" flag, and END writes the word only when it is set
+   (`flash_programmer.c:549-555,716-728`), so END alone would not do.
+5. The whole flash must equal the pre-start read.
+
+Every mailbox packet is fixed in advance from the pre-start image, and the
+monitor refuses any other. `--finish JOURNAL` restores block 0 from a stopped
+run's `before-startup.bin`, starting at the ROM port: port reset, debug reset,
+handshake, two reads, then step 4. It refuses if anything outside block 0 differs.
+
+From step 1 to END the unit has no boot word. What can go wrong, and what then:
+
+| Where it stops | State | Way back |
+| --- | --- | --- |
+| Erase, program or a check in step 1; anything in step 4 | In a programmer session, USB up | `--finish` |
+| Step 2: no ROM port even after the port reset | ROM monitor, held by the blank word, the Mac not seeing it | Replug the cable, then `--finish`. If the port never appears, the unit is stuck |
+| Step 3: no answer after the silence | The ROM left despite the blank word and the vendor code is running | The vendor firmware's own way into the ROM, as in every run so far; no tool mode for it yet |
+
+`--finish` and the composition of steps 1 to 5 have run only against the
+simulated chip in the tests (112 pass). Step 2 with a valid word is run 2 above.
+
+```sh
+.venv/bin/python tools/rda_programmer_start.py --execute --blank-word-test --unit 1403167412 \
+  --journal firmware/live/2026-10-09-blank-word-412
+```
+
+### Blank-word test, part one, run on 412: passed
+
+13:37:11 UTC, 2026-10-09, run by the assistant after the user's "lets run this".
+Journal and fourteen reads: `firmware/live/2026-10-09-blank-word-412/`.
+
+Before the run, a read of `run()` found that it could not have finished as
+prepared. `query()` saved its two reads as `after-query.bin` and
+`after-query-second.bin`, the restore step calls `query()` a second time, and the
+journal never overwrites a file. The run would have stopped with `FileExistsError`
+in step 4, after the fresh programmer's query and before the restore, with the
+boot word blank. The tests did not show it because they give the pieces a mock
+journal and a patched `read_flash`. Driving the real `run()` against the simulated
+chip with a journal on disk reproduced it. The second query now saves as
+`before-restore.bin`, and two tests run the whole of `--blank-word-test` and
+`--finish` that way; the first fails against the tool as it was. 114 pass. Nothing
+sent to the tracker changed.
+
+| Elapsed | Result |
+| --- | --- |
+| 1.9 s | `Reset_Cause` `0x200000`, force bit written; `Coolsand Usb` 0.72 s after the entry reset |
+| 63.0 s | Two ROM reads identical, SHA-256 `6c53d5e4…91bf`; code and protected tail as the backup, 5806 bytes differ in the same five sectors of the vendor's store |
+| 63.8 s | Programmer READY 0.54 s after execute; JEDEC `c8 60 16` |
+| 100.1 s | Query answered; four more reads identical to the pre-start read |
+| 100.1 s | ERASE of block 0 done in 0.28 s; the block read back blank |
+| 100.6 s to 101.0 s | Sixteen PROGRAMs, 12 to 24 ms each |
+| 110.1 s | Full read `bb58b7fb…eaa0`: the pre-start image with bytes 0 to 3 `ff ff ff ff`, nothing else changed |
+| 110.1 s | Debug reset sent inside the session |
+| 111.1 s to 113.1 s | Listed as `1e04:0900`, no answer to string requests, as in both reset tests |
+| 113.19 s | `Coolsand Usb` 3.1 s after the debug reset and 0.08 s after the Mac's port reset; handshake `0xff000001` |
+| 113.2 s to 153.2 s | No USB traffic for 40 s |
+| 155.1 s | First 256 KiB of the read answered |
+| 183.7 s | Full read through the ROM identical to the blank-word image |
+| 184.4 s | Second programmer READY 0.54 s after execute; query answered; three reads identical to the blank-word image |
+| 211.7 s | Restore: ERASE of block 0 in 0.29 s, sixteen PROGRAMs, block and whole flash checked |
+| 221.8 s | END done; it wrote the boot word |
+| 239.8 s | Two full reads `6c53d5e4…91bf`, the pre-start read |
+
+The unit had no boot word from 13:38:51 to 13:40:53 UTC, 122 s.
+
+What it establishes on a real unit:
+
+- Erasing and programming a code block works: block 0, twice.
+- END writes the boot word when block 0 was programmed in the same session.
+- The writer's own `restore()` puts block 0 back, from a programmer started on a
+  ROM that had no boot word to find.
+- With the word blank the ROM monitor answered after 40 s of silence. With it
+  valid the monitor leaves at 30 s (Run B, and reset test run 1).
+- The reset from inside the programmer session brings the ROM back with the word
+  blank, given the Mac's port reset, as it did with the word valid.
+
+Not covered: `--finish` has still only run against the simulated chip, and RST
+with the word blank is part two. After this run the unit sat in the second
+programmer session, listed as `Coolsand Usb`, with a valid boot word; RST returns
+it to the vendor firmware, as after both reset tests.
+
+After the user's RST the unit was back as `RDA Usb`, and at 13:44:03 UTC it read
+`Reset_Cause=0x00200000`. A two-pass dump through the vendor firmware
+(`2026-10-09-spare-412/after-blank-word-test.flash.bin`) has block 0, all the code
+and the calibration and factory blocks identical to the backup. Against the
+pre-start read of this run, 528 bytes differ, all in one 4 KiB sector of the
+vendor's store (`0x3a3000`), one of the five that already differed from the backup.
+
+### Blank-word test, step A: separate stop and finish (prepared, not run)
+
+Prepared on 2026-10-09 from `handoff-2026-10-09-blank-word-part-two.md`.
+The new `--blank-word-stop` mode runs the existing start and query checks, calls
+`blank_boot_word()`, and returns after the full flash read proves only bytes 0-3
+changed to `ff ff ff ff`. It sends no debug reset or END after blanking. It leaves
+the chip in the programmer with USB connected. The original unit 417 remains
+refused; this plan uses spare 412, whose identity is checked before writing.
+
+The new test drives the real `run()` with journals on disk through blank-and-stop,
+checks the exact command list and absence of a reset, then drives `--finish` using
+the first run's actual journal and requires the entire original image. Before the
+implementation the test failed because the word was still valid. After the change
+it passes. CLI checks also reject combining this mode with another test, `--finish`,
+or the marker build. All 116 tests pass. No dependency was added.
+
+Read-only preflight: no `rda_` process was found. The descriptor watch recorded
+`RDA Usb` in `firmware/live/2026-10-09-part-two-preflight-usb.jsonl`. At 13:58:52 UTC,
+`Reset_Cause=0x00200000`; evidence is
+`firmware/live/2026-10-09-part-two-preflight-reset-cause-unsandboxed.log`.
+The earlier sandboxed register-read attempt could not enumerate the tracker and
+sent no request. USB descriptors alone do not identify the unit.
+
+Two separate flash-writing runs are needed. Obtain a go for each run. Throughout
+step A: no RST, unplug or power button. Run 2 restores the valid boot word before
+any physical-reset experiment is considered.
+
+| Where it stops | State | Next action |
+| --- | --- | --- |
+| Before the first erase | Boot word remains valid | Inspect the journal before any retry |
+| During erase/program/verification in run 1 | Block 0 incomplete or word blank, programmer still running if USB is healthy | Keep connected; restore with `--finish` after its own go |
+| Successful run 1 | Whole flash matches pre-start except word 0, programmer running | Run 2 after its own go; no physical reset |
+| Run 2 before END | Word may still be blank | Keep connected; inspect the journal, fix the cause and obtain a go for another recovery run |
+| USB becomes unreachable while the word is blank | No valid boot word; external recovery unproven | The unit could be lost without opening it, which the user has ruled out |
+
+Commands, output to regular files and new journal directories (allow ten minutes
+per command). Recheck for competing tracker processes immediately before each run.
+
+```sh
+.venv/bin/python tools/rda_programmer_start.py --execute --blank-word-stop \
+  --unit 1403167412 --journal firmware/live/2026-10-09-finish-check-412-blank \
+  > firmware/live/2026-10-09-finish-check-412-blank.log 2>&1
+
+.venv/bin/python tools/rda_programmer_start.py --execute \
+  --finish firmware/live/2026-10-09-finish-check-412-blank \
+  --unit 1403167412 --journal firmware/live/2026-10-09-finish-check-412-restore \
+  > firmware/live/2026-10-09-finish-check-412-restore.log 2>&1
+```
+
+Offline validation of the blank-and-stop command passed against the pinned spare
+412 backup and programmer. Neither command above has run. `--finish` is still
+unproven on hardware; RST with a blank word is still unproven. Step B requires a
+separate blanking run and the user's physical RST after step A succeeds.
+
+### Step A, run 1 on 412: blank-and-stop passed; restoration pending
+
+14:00:59-14:02:51 UTC on 2026-10-09, after the user's "yes, go. I wont touch the
+usb" authorizing the first blank-and-stop run. No competing `rda_` process was
+found immediately before execution. Command and paths are as prepared above;
+journal `firmware/live/2026-10-09-finish-check-412-blank/`. Process exit code 0.
+
+| Elapsed | Result |
+| --- | --- |
+| 3.0 s | Vendor boot, unit identity and ROM checks passed; normal reset fields; force bit set and entry reset sent |
+| 3.7 s | `Coolsand Usb`, 0.72 s after the entry reset; ROM handshake answered |
+| 65.0 s | Two full ROM reads identical, SHA-256 `47f9966f…4c47`; code and protected tail match spare 412's backup |
+| 65.8 s | Pinned programmer READY, JEDEC `c8 60 16` |
+| 102.3 s | Startup and query checks passed; four more full reads identical to pre-start |
+| 102.3-102.6 s | Block 0 ERASE completed; blank block readback passed before programming |
+| 102.8-103.2 s | Sixteen 4 KiB PROGRAMs completed, word 0 withheld |
+| 112.2 s | Full read verified; `boot_word_blank` and `blank_word_stopped`; no subsequent reset or END |
+
+Independent comparison of the saved 4 MiB images confirmed that exactly offsets
+0, 1, 2 and 3 changed. Pre-start SHA-256:
+`47f9966f4e2e753e6cbf1432062f7fdcb7c43c846b4401a1fc780b517b674c47`.
+Blank-word image SHA-256:
+`5ef028552bf891f33811e55b27aefd3c33042bad44eb5d40c7a5610e413f7f93`.
+The pre-start image differs from the backup only in the same five vendor-store
+sectors already observed, by 6334 bytes.
+
+Current state: boot word blank since the erase at 14:02:41 UTC, left in the
+programmer session. No RST, unplug or power button. The separately authorized
+`--finish` run is next, using this run's `before-startup.bin`. It has not run;
+hardware recovery through `--finish` and the physical-reset experiment remain
+unproven.
+
+### Step A, run 2 on 412: separate `--finish` passed
+
+14:04:24-14:06:25 UTC on 2026-10-09, after the user's separate "yes, go ahead"
+for restoration. No competing `rda_` process was found. The saved recovery target
+hash and the blank image were checked before starting. Journal:
+`firmware/live/2026-10-09-finish-check-412-restore/`; command as prepared above.
+Process exit code 0.
+
+| Elapsed | Result |
+| --- | --- |
+| 0.0 s | Tracker listed as `Coolsand Usb` in the stopped programmer session |
+| 1.1 s | Initial Mac port reset completed; debug reset sent |
+| 4.2 s | After another Mac port reset, ROM returned 3.12 s after debug reset; handshake answered |
+| 65.4 s | Two full ROM reads match the saved blank image, SHA-256 `5ef02855…7f93`; exactly four bytes differ from target |
+| 66.2 s | Fresh pinned programmer READY |
+| 84.3 s | Query checks passed; both full reads still match the blank image |
+| 93.3 s | Writer's own pre-write read matches the blank image; plan contains block 0 only |
+| 93.7-94.4 s | ERASE and sixteen PROGRAMs completed; block 0 verified |
+| 103.5 s | Whole-flash check with word withheld passed; END completed, writing the boot word |
+| 112.5 s | Writer's full post-END read matches the target |
+| 121.5 s | Additional full read matches the target; `boot_block_restored`, word `0xd9ef0045` |
+
+Independent comparison of `after-flash.bin` and `after-restore.bin` against run 1's
+`before-startup.bin` confirmed exact equality across all 4,194,304 bytes. All three
+have SHA-256
+`47f9966f4e2e753e6cbf1432062f7fdcb7c43c846b4401a1fc780b517b674c47`.
+The boot word was blank from approximately 14:02:41 to 14:06:07 UTC, 206 seconds.
+
+What this establishes: `--finish` can recover this spare from a separately stopped
+blank-and-stop run, using its actual on-disk journal. It can reset the stopped
+programmer, regain the ROM through Mac port resets, start a new programmer and
+restore the exact pre-start image. It does not establish USB recovery after RST
+with a blank word or after power loss. The unit is left in the programmer with a
+valid boot word; the user's RST can now return it to the vendor firmware.
+
+After the user reported RST, a descriptor-only watch found `RDA Usb`
+(`firmware/live/2026-10-09-after-finish-rst-usb.jsonl`). At 14:08:40 UTC the
+single register read returned `Reset_Cause=0x00200000`, boot mode `0x20`,
+software boot mode zero and `USB_MONITOR_DISABLE=0`
+(`firmware/live/2026-10-09-after-finish-rst-reset-cause.log`). No competing tracker
+process was found. Vendor firmware has returned with normal boot fields. No
+post-RST flash dump was taken; the full-image equality above was verified before
+RST, and vendor firmware can change its settings store when it runs.
+
+### Step B on 412: RST with a blank boot word (prepared, not run)
+
+First return to vendor firmware with the user's RST while the boot word is valid,
+then verify `RDA Usb` and normal reset fields. Obtain a new go for blank-and-stop.
+Use the same pinned unit and mode as step A; no code change is needed.
+
+```sh
+.venv/bin/python tools/rda_programmer_start.py --execute --blank-word-stop \
+  --unit 1403167412 --journal firmware/live/2026-10-09-rst-blank-412 \
+  > firmware/live/2026-10-09-rst-blank-412.log 2>&1
+```
+
+After the full read verifies only the word changed, start a descriptor-only USB
+watch and ask the user to press RST once. This is the experiment's risk: the ROM's
+USB power after hardware reset is unknown. If USB never returns, the unit may be
+lost under the user's no-opening constraint. Step A does not remove this risk.
+
+| Observation after RST | Next action |
+| --- | --- |
+| `Coolsand Usb` returns | Record enumeration; obtain the separate go for `--finish` below |
+| `1e04:0900` remains listed but silent | Record it; `--finish` begins with its own Mac port reset; obtain its separate go |
+| No tracker listed | Ask for a cable replug, observe again, and restore if a usable port returns |
+| Still no tracker after replug | Do not claim recovery; power-button handling or battery depletion are unproven external options |
+| Vendor interface unexpectedly returns | Record the contradiction, inspect read-only state and do not force the prepared ROM-only recovery path |
+
+```sh
+.venv/bin/python tools/rda_programmer_start.py --execute \
+  --finish firmware/live/2026-10-09-rst-blank-412 \
+  --unit 1403167412 --journal firmware/live/2026-10-09-rst-blank-412-restore \
+  > firmware/live/2026-10-09-rst-blank-412-restore.log 2>&1
+```
+
+Each writing run needs its own go, fresh journal, output file and process check.
+Require exact equality to step B's own pre-start image after restoration. Success
+would establish recovery after the tested RST with the cable connected; fully
+discharged power-on and compatibility with Logicrom's core would remain untested.
+
+### Step B, blank-and-stop on 412: passed; physical reset pending
+
+14:09:45-14:11:37 UTC on 2026-10-09, after the user's "yes, go for step B".
+No competing `rda_` process was found. Command as prepared above; journal
+`firmware/live/2026-10-09-rst-blank-412/`. Process exit code 0.
+
+| Elapsed | Result |
+| --- | --- |
+| 4.4 s | Unit and ROM checks passed; force bit set, entry reset, ROM handshake |
+| 65.6 s | Two identical full ROM reads, SHA-256 `a09f61a9…1f75`; code and protected tail match the backup |
+| 66.4 s | Pinned programmer READY |
+| 102.7 s | Startup and query reads unchanged; blanking begins |
+| 112.6 s | Full flash read verifies only bytes 0-3 changed; no subsequent reset or END |
+
+Independent comparison of saved images confirmed exact equality outside the four
+boot-word bytes. Pre-start SHA-256:
+`a09f61a9c67b4f1c4830173432d6682bc33dc9a556d2c24d23e9fafff6f51f75`.
+Blank-word SHA-256:
+`67ea2cd01ad3667467bb1312e9f11b69d3a6f686f38dda2b61856576337de493`.
+The pre-start image differs from the backup by 6862 bytes in the same five
+vendor-store sectors as earlier runs.
+
+The boot word is blank from 14:11:28 UTC. A 60 s descriptor-only watch was started
+at 14:11:42 UTC (watch-file creation time), initially showing `Coolsand Usb`, and the user was
+instructed to press RST once with the cable connected. Evidence:
+`firmware/live/2026-10-09-rst-blank-412-watch-01.jsonl`.
+The post-RST result and restoration remain pending. `--finish` must use this
+step B journal, not step A's earlier image, and needs its own go.
+
+### Step B, physical RST on 412: ROM USB reachable with the boot word blank
+
+The user reported RST after blanking. Neither 60 s descriptor watch captured a
+transition; both logged `Coolsand Usb` throughout. Therefore these watches do not
+establish the exact reset time or enumeration delay. A fresh three-second watch
+after the user's report also found `Coolsand Usb`:
+`firmware/live/2026-10-09-rst-blank-412-after-rst-usb.jsonl`.
+
+At 14:15:40 UTC a bounded check used the existing `StartMonitor` with no load
+segments, no armed reset and no allowed mailbox packets. It sent the ROM
+handshake, read the reset register and boot word, and read the whole flash. It
+sent no Mac port reset, debug reset, RAM load, MMIO write or flash command.
+Journal: `firmware/live/2026-10-09-rst-blank-412-rom-check/`; output:
+`firmware/live/2026-10-09-rst-blank-412-rom-check.log`. Process exit code 0.
+
+| Elapsed | Result |
+| --- | --- |
+| 0.014 s | ROM handshake answered `0xff000001` |
+| 0.015 s | `Reset_Cause=0x00200000`, force-monitor bit clear; flash word 0 `0xffffffff` |
+| 30.607 s | Full 4 MiB read exactly matches the saved blank-word image, SHA-256 `67ea2cd0…e493` |
+
+The normal reset fields distinguish this state from the forced monitor used to
+enter the programmer: before RST the force bit was set. Together with the user's
+RST report, the blank word and successful ROM read establish that USB remains
+reachable after hardware reset with the boot word withheld on this unit, with
+the cable connected. No port reset or replug was needed after the user's RST.
+
+Not established: enumeration timing, startup from a depleted battery or complete
+power loss, behavior across other units, or Logicrom's handling of a blank word.
+No new firmware was installed. The unit is currently in the ROM monitor with a
+blank boot word. The prepared step B `--finish` command is next, after its own go;
+restoration has not yet run.
+
+### Step B, restoration on 412: passed; valid boot word restored
+
+14:17:43-14:19:45 UTC on 2026-10-09, after the user's separate "yes, go" for
+restoration. No competing `rda_` process was found. Before starting, the pre-start
+target hash and equality of the post-RST read to the saved blank image were
+verified. Command as prepared above; journal
+`firmware/live/2026-10-09-rst-blank-412-restore/`. Process exit code 0.
+
+| Elapsed | Result |
+| --- | --- |
+| 0.0 s | `Coolsand Usb` present |
+| 1.1-4.2 s | `--finish` performed its initial port reset and debug reset; a further Mac port reset recovered the ROM, 3.12 s after debug reset |
+| 65.5 s | Two full ROM reads agree; only four bytes differ from the valid target |
+| 66.2 s | Fresh pinned programmer READY |
+| 84.2 s | Query and its two full-read checks passed |
+| 93.6-94.3 s | Block 0 ERASE and sixteen PROGRAMs completed, followed by block verification |
+| 103.4 s | Full flash checked with word withheld; END completed, restoring the boot word |
+| 112.4 s | Writer's full post-END read matches the target |
+| 121.5 s | Additional full read matches; `boot_block_restored`, word `0xd9ef0045` |
+
+Independent comparison confirmed that both `after-flash.bin` and
+`after-restore.bin` exactly match all 4,194,304 bytes of step B's
+`before-startup.bin`, SHA-256
+`a09f61a9c67b4f1c4830173432d6682bc33dc9a556d2c24d23e9fafff6f51f75`.
+The boot word was withheld from about 14:11:28 to 14:19:27 UTC, 479 seconds.
+
+The physical-reset experiment and subsequent restoration are complete. On this
+unit, with USB connected, a blank boot word allowed a working ROM monitor after
+the user's RST, and `--finish` subsequently restored the exact pre-start image.
+The Mac port resets in this restoration belong to the tool's additional debug
+reset sequence; they were not needed for the earlier post-RST ROM read.
+
+Current state: valid boot word, left in the programmer session. The user's next
+RST can return it to vendor firmware; that post-restoration reboot has not yet
+been checked. This establishes the tested hardware-reset recovery path only,
+not recovery after full power loss or any Logicrom firmware behavior. Original
+unit 417 was not touched. Nothing was committed.
+
+After the user's final RST, the descriptor check found vendor `RDA Usb`
+(`firmware/live/2026-10-09-rst-blank-412-final-usb.jsonl`). At 14:20:47 UTC the
+single register read returned `Reset_Cause=0x00200000`, boot mode `0x20`, software
+boot mode zero and `USB_MONITOR_DISABLE=0`
+(`firmware/live/2026-10-09-rst-blank-412-final-reset-cause.log`). No competing
+tracker process was found. Final state: vendor firmware running normally on USB,
+normal reset fields, restoration verified before RST. No post-RST full flash dump
+was taken; vendor firmware may update its settings store. Steps A and B are complete.

@@ -47,6 +47,21 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(acknowledged(args('gpio-test', pin=28, level=1), b'AT RETURN:gpiotest.\n'))
         self.assertFalse(acknowledged(args('gpio-test', pin=28, level=1), b'AT RETURN:ts\n'))
 
+    def test_leds_off_needs_the_default_branch_in_the_log(self):
+        self.assertEqual(build_command(args('leds-off')), b'AT:rfhzledtest,100#\r')
+        self.assertTrue(acknowledged(args('leds-off'), b'rfhz_led_status---case=default.\n'))
+        self.assertFalse(acknowledged(args('leds-off'), b'AT RETURN:rfhzledtest.\n'))
+
+    def test_buzzer_alarm_ack_requires_the_saved_mode(self):
+        self.assertEqual(build_command(args('buzzer-alarm', mode=3)), b'AT:hon,3#\r')
+        for mode in (4, -1, None):
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                build_command(args('buzzer-alarm', mode=mode))
+        reply = b'set_hon_flag---after-hon_flag=3.\nAT RETURN:hon.\n'
+        self.assertTrue(acknowledged(args('buzzer-alarm', mode=3), reply))
+        self.assertFalse(acknowledged(args('buzzer-alarm', mode=0), reply))
+        self.assertFalse(acknowledged(args('buzzer-alarm', mode=3), b'AT RETURN:hon.\n'))
+
     def test_apn_ack_requires_matching_values_and_completion(self):
         echo = b'set_APN_data.p_APN_name:sme.vodafone.iot.p_UserName:.p_PassWd:.P_UserData:90128.\n'
         ack = b'AT RETURN:apn.\n'

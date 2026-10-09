@@ -1,7 +1,7 @@
 """RDA8955 host flash writer. Default is an OFFLINE plan; USB requires --execute.
 
 Execution starts in an already established ROM monitor, never resets a running
-tracker to get there. Board qualification is required before loading the stock
+tracker to get there. Board qualification is required before loading the pinned
 programmer (its startup itself can write flash status registers). See
 docs/v24-flash-writer.md. No hardware qualification is supplied with this tool.
 """
@@ -20,27 +20,43 @@ FLASH_SIZE = 0x400000
 PROTECTED = 0x3FA000
 FLASH_BASE = 0xA8000000
 MAGIC = 0xD9EF0045
-LOD_SHA = '8a3ea6257de0c4d584d9f04d8e19db73ee54d8eee0a47fc3ddcaebb2f8af9dd1'
+# The pinned programmer is the SDK's USB flash programmer built without its
+# 104 MHz clock request (the unmodified build never reaches READY) and with the
+# V24 charge current. The addresses below are its ELF symbols g_flashProgDescr,
+# g_memdFlashBankLayout, g_memdFlashLayout and gSpiFlashCtx, and IMAGE_END is the
+# end of its SRAM load; all five move with every build and must be re-pinned together.
+LOD_SHA = 'c238911dc478363b1dffdebbffcc407e6e1b1b51ef5c53c9d90ca2fe8bff6c65'
 ROM_SHA = '3946ea195270620f0907997f96f32fbaa1e2ab405146235fef2afb5f3c4680d7'
-MAP = 0xA1C0BB68
+MAP = 0xA1C0B9E8
 BUFFER = 0xA2000000
-GEOMETRY_ADDRESS = 0xA1C095C4
+GEOMETRY_ADDRESS = 0xA1C0944C
 GEOMETRY = struct.pack('<7I', 0, 63, 0x10000, 16, 0x1000, 0, 0)
-LAYOUT_ADDRESS = 0xA1C095E0
-LAYOUT = struct.pack('<6I', 1, 0x81C095C4, FLASH_SIZE, 0x3F6000, 0x4000, 512)
-FLASH_CONTEXT = 0xA1C076F0
+LAYOUT_ADDRESS = 0xA1C09468
+LAYOUT = struct.pack('<6I', 1, 0x81C0944C, FLASH_SIZE, 0x3F6000, 0x4000, 512)
+FLASH_CONTEXT = 0xA1C075B0
+IMAGE_END = 0xA1C0BBA0
+PINNED_RUNTIME = dict(map=MAP, geometry=GEOMETRY_ADDRESS, layout=LAYOUT_ADDRESS,
+                      flash_context=FLASH_CONTEXT)
 ORIGINAL_UNIT = '1403167417'
 LIVE_ROOT = Path(__file__).resolve().parents[1] / 'firmware/live'
 ROM_START, ROM_EXECUTING, READY = 0xFF000001, 0xFF000004, 0xF0
 EVENT_ERRORS = {0xB0, 0xB1, 0xC0, 0xCE, 0xD0, 0xD1, 0xE0, 0xE1,
                 0xEBC0EEE1, 0xEBC0EEE2, 0xFF000002, 0xFF000003, 0xFF000005}
 PROGRAM, ERASE, END, FINALIZE_INFO, PING = 1, 2, 4, 6, 9
+# Only the status and unlock builds have these commands (rda_programmer_start.py).
+# The pinned build answers them with ERROR and the unknown-command event.
+READ_STATUS, CLEAR_PROTECTION = 0x11, 0x12
 DONE = 0xFFFFFF9C
 ERRORS = {0xFFFFFF9D, 0xFFFFFF9E, 0xFFFFFF9F}
 
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def layout_for(where):
+    # The layout descriptor holds a pointer to the bank table, by its cached address.
+    return LAYOUT[:4] + struct.pack('<I', where['geometry'] - 0x20000000) + LAYOUT[8:]
 
 
 def span(offset, size, limit=PROTECTED):
@@ -192,7 +208,7 @@ class Monitor:
     def write_ram(self, address, data):
         span(address, len(data), 0x100000000)
         # Only pinned loader SRAM or its first 4 KiB transfer buffer.
-        ranges = ((0xA1C000A0, 0xA1C000B8), (0xA1C00280, 0xA1C0BD20),
+        ranges = ((0xA1C000A0, 0xA1C000B8), (0xA1C00280, IMAGE_END),
                   (BUFFER, BUFFER + 4096))
         if not any(lo <= address and address + len(data) <= hi for lo, hi in ranges):
             raise ValueError('RAM write outside pinned programmer allocations')
@@ -226,6 +242,9 @@ def read_lod(path):
     for lo, hi in result['intervals']:
         lo, hi = int(lo, 16), int(hi, 16)
         segments.append((lo | 0xA0000000, b''.join(memory[a] for a in range(lo, hi, 4))))
+    # write_ram's allowlist is bounded by IMAGE_END, so it must be this image's end.
+    if segments[-1][0] + len(segments[-1][1]) != IMAGE_END:
+        raise ValueError('Pinned binary load range mismatch')
     geometry = b''.join(memory[a] for a in range(GEOMETRY_ADDRESS & 0x1FFFFFFF,
                                                (GEOMETRY_ADDRESS & 0x1FFFFFFF) + 28, 4))
     if geometry != GEOMETRY:
@@ -258,25 +277,31 @@ def load_programmer(monitor, segments, journal):
 
 
 class Programmer:
-    def __init__(self, monitor, journal, timeout=30):
+    def __init__(self, monitor, journal, timeout=30, where=PINNED_RUNTIME):
         self.monitor, self.journal, self.timeout = monitor, journal, timeout
+        # The running build's tables. Every build moves them, so a locally built
+        # programmer brings its own (rda_programmer_start.py).
+        self.where = where
         self.slot = 0
         self.failed = False
+        # Erase and program stop below the calibration/factory tail. Only the tail
+        # repair in rda_programmer_start.py raises this, and only while it runs.
+        self.limit = PROTECTED
 
     def initialize(self, expected_flash_id):
         # A fresh launch is mandatory; attaching to unknown mailbox state is unsafe.
         expected = struct.pack('<15I', 0xFB05FA01, *([0] * 10),
                                BUFFER, BUFFER + 0x10000, BUFFER + 0x20000, 0x10000)
-        if self.monitor.read(MAP, 60) != expected:
+        if self.monitor.read(self.where['map'], 60) != expected:
             raise IOError('Unexpected fresh programmer ABI/mailbox/buffers')
-        if self.monitor.read(GEOMETRY_ADDRESS, 28) != GEOMETRY:
+        if self.monitor.read(self.where['geometry'], 28) != GEOMETRY:
             raise IOError('Runtime erase geometry mismatch')
-        if self.monitor.read(LAYOUT_ADDRESS, len(LAYOUT)) != LAYOUT:
+        if self.monitor.read(self.where['layout'], len(LAYOUT)) != layout_for(self.where):
             raise IOError('Runtime flash layout pointer/size mismatch')
         # Pinned HAL context: checkirq + padding, raw ID, three ID bytes,
         # high-performance opcode. This is a post-startup check, not a safe
         # way to discover an unknown chip: startup may already have set QE.
-        context = self.monitor.read(FLASH_CONTEXT, 12)
+        context = self.monitor.read(self.where['flash_context'], 12)
         raw_id = struct.unpack_from('<I', context, 4)[0]
         if (raw_id != expected_flash_id or context[8:11] != raw_id.to_bytes(4, 'little')[:3]
                 or context[10] != 22):
@@ -286,7 +311,8 @@ class Programmer:
         self.command(PING)  # proves both slots, serialized
         slot = self.slot
         self.command(FINALIZE_INFO)
-        count = struct.unpack('<I', self.monitor.read(MAP + 4 + slot * 20 + 12, 4))[0]
+        count = struct.unpack('<I', self.monitor.read(self.where['map'] + 4 + slot * 20 + 12,
+                                                      4))[0]
         if count != 1 or self.monitor.read(BUFFER, 8) != struct.pack('<II', 0, MAGIC):
             raise IOError('Unexpected finalization write footprint')
 
@@ -294,16 +320,17 @@ class Programmer:
         if self.failed:
             raise RuntimeError('Session failed; fresh readback required, no retry')
         if command == ERASE:
-            span(offset, sector_size(offset))
+            span(offset, sector_size(offset), self.limit)
             if data:
                 raise ValueError('Erase has no payload')
         elif command == PROGRAM:
-            span(offset, len(data))
+            span(offset, len(data), self.limit)
             if len(data) > 4096:
                 raise ValueError('Program chunks must be <= 4096 bytes')
-        elif command not in (PING, FINALIZE_INFO, END) or offset or data:
+        elif (command not in (PING, FINALIZE_INFO, END, READ_STATUS, CLEAR_PROTECTION)
+              or offset or data):
             raise ValueError('Unsupported command or parameters')
-        address = MAP + 4 + self.slot * 20
+        address = self.where['map'] + 4 + self.slot * 20
         try:
             status = struct.unpack('<I', self.monitor.read(address, 4))[0]
             if status not in (0, DONE):
@@ -341,9 +368,9 @@ class Programmer:
         return self.monitor.read(FLASH_BASE + offset, size)
 
 
-def restore(programmer, target, backup, unit, journal):
+def restore(programmer, target, backup, unit, journal, *, finalize=True):
     try:
-        return _restore(programmer, target, backup, unit, journal)
+        return _restore(programmer, target, backup, unit, journal, finalize=finalize)
     except BaseException:
         # Readback and journal failures poison the session too, not just a
         # mailbox timeout. The caller cannot continue writing in this session.
@@ -351,9 +378,18 @@ def restore(programmer, target, backup, unit, journal):
         raise
 
 
-def _restore(programmer, target, backup, unit, journal):
+def _restore(programmer, target, backup, unit, journal, *, finalize=True):
     current = programmer.read_flash()
     work = plan(current, target, backup, unit)
+    if unit == ORIGINAL_UNIT and work['finalize_boot_magic']:
+        raise ValueError('Block 0 is never rewritten on the original unit')
+    if not finalize and current[:4] != b'\xff' * 4:
+        raise ValueError('Trial programming requires an already blank boot word')
+    expected_final = target if finalize else b'\xff' * 4 + target[4:]
+    boot_block_changed = work['finalize_boot_magic']
+    work['finalize_boot_magic'] = boot_block_changed and finalize
+    if not finalize:
+        work['verification'] = 'erased bytes, each programmed sector, full 4 MiB with boot word blank'
     journal.save('before-flash.bin', current)
     journal.emit('live_plan', plan=work)
     if not work['sectors']:
@@ -379,19 +415,20 @@ def _restore(programmer, target, backup, unit, journal):
         if programmer.read_flash(offset, size) != expected:
             raise IOError('Program verification failed; stop without retry')
         journal.emit('sector_verified', offset=offset, size=size)
-    if work['finalize_boot_magic']:
+    if boot_block_changed:
         # Catch corruption outside the sectors just read, before enabling boot.
         if programmer.read_flash() != b'\xff' * 4 + target[4:]:
             raise IOError('Full flash verification failed before finalization')
-        journal.emit('finalize_intent', offset=0, size=4, value=MAGIC)
-        programmer.command(END)
+        if finalize:
+            journal.emit('finalize_intent', offset=0, size=4, value=MAGIC)
+            programmer.command(END)
     final = programmer.read_flash()
     journal.save('after-flash.bin', final)
-    if final != target:
+    if final != expected_final:
         journal.emit('verification_failed', actual_sha256=sha(final))
         raise IOError('Full flash verification failed after finalization')
     journal.emit('verified', sha256=sha(final), changed_sectors=len(work['sectors']),
-                 rebooted=False, cold_recovery_proven=False)
+                 rebooted=False, cold_recovery_proven=False, boot_word_withheld=not finalize)
     return work
 
 

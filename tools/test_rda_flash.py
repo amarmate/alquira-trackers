@@ -7,6 +7,14 @@ import unittest
 from unittest.mock import patch
 
 import rda_flash as f
+from rda_lod_audit import audit
+
+BUILD = f.LIVE_ROOT / 'usb-programmer-build'
+PINNED_LOD = BUILD / 'clean/artifacts/usb_8955_flsh_spi32m_ramrun_noclk_200ma.lod'
+# The unmodified SDK build. ROM acknowledges its execution, but it never reaches
+# READY: its 104 MHz clock request runs on a clock framework that was never opened.
+UNFIXED_LOD = BUILD / 'artifacts/usb_8955_flsh_spi32m_ramrun.lod'
+UNFIXED_SHA = '8a3ea6257de0c4d584d9f04d8e19db73ee54d8eee0a47fc3ddcaebb2f8af9dd1'
 
 # Synthetic Winbond-shaped ID for the simulator, NOT the tracker's identity.
 TEST_FLASH_ID = 0x1640EF
@@ -238,7 +246,7 @@ class FlashTests(unittest.TestCase):
                 self.programmer.initialize(TEST_FLASH_ID)
         self.assertFalse(any(c[0] in (f.ERASE, f.PROGRAM, f.END) for c in self.memory.commands))
 
-    def test_qualification_binds_review_unit_source_and_evidence(self):
+    def passing_qualification(self):
         root = Path(self.temp.name)
         evidence = root / 'review.txt'
         evidence.write_text('SIMULATED EVIDENCE ONLY')
@@ -252,6 +260,18 @@ class FlashTests(unittest.TestCase):
                     'repeatable_rom_access', 'board_ram_power', 'flash_chip_and_startup', 'experiment_review')}}
         path = root / 'qualification.json'
         path.write_text(json.dumps(info))
+        return path, info
+
+    def test_qualification_for_the_unfixed_programmer_is_rejected(self):
+        # Evidence gathered for one programmer binary says nothing about another.
+        path, info = self.passing_qualification()
+        info['programmer_sha256'] = UNFIXED_SHA
+        path.write_text(json.dumps(info))
+        with self.assertRaisesRegex(ValueError, 'programmer'):
+            f.qualification(path, 'simulated-spare', self.backup, self.backup)
+
+    def test_qualification_binds_review_unit_source_and_evidence(self):
+        path, info = self.passing_qualification()
         self.assertEqual(f.qualification(path, 'simulated-spare', self.backup, self.backup), info)
         for unit, target in ((f.ORIGINAL_UNIT, self.backup), ('another', self.backup),
                              ('simulated-spare', self.target(16))):
@@ -353,7 +373,7 @@ class TransportTests(unittest.TestCase):
     def test_ram_allowlist_blocks_flash_mmio_and_overruns(self):
         monitor, endpoint = self.monitor([])
         for address, size in ((f.FLASH_BASE, 4), (0xA1A000A0, 4), (f.BUFFER, 4100),
-                              (0xA1C000B4, 8), (0xA1C0BD1C, 8)):
+                              (0xA1C000B4, 8), (f.IMAGE_END - 4, 8)):
             with self.assertRaises(ValueError):
                 monitor.write_ram(address, b'\x00' * size)
         self.assertEqual(endpoint.sent, [])
@@ -364,6 +384,87 @@ class TransportTests(unittest.TestCase):
         with patch.object(monitor, 'read', return_value=b'bad!'):
             with self.assertRaisesRegex(IOError, 'RAM load verification'):
                 f.load_programmer(monitor, [(0xA1C00280, b'1234')], Events())
+
+
+class Device:
+    """Monitor-protocol endpoint over internal SRAM: keeps writes, answers reads, starts once."""
+    def __init__(self):
+        self.ram = bytearray(0x10000)
+        self.replies = bytearray()
+        self.executed = 0
+
+    def write(self, endpoint, request, **kwargs):
+        payload = request[3:-1]
+        if payload[:2] == b'\xff\x83':
+            offset = struct.unpack_from('<I', payload, 2)[0] - 0xA1C00000
+            self.ram[offset:offset + len(payload) - 6] = payload[6:]
+        elif payload[:2] == b'\xff\x03':
+            address, rid = struct.unpack_from('<IB', payload, 2)
+            count = int.from_bytes(payload[7:9], 'big')
+            data = self.ram[address - 0xA1C00000:][:count]
+            self.replies += f.frame(b'\xff' + bytes([rid]) + data)
+        elif payload == b'\xff\x84' + struct.pack('<I', 5) + b'\xff':
+            self.executed += 1
+            for value in (f.ROM_EXECUTING, f.READY):
+                self.replies += f.frame(b'\xff\x00' + struct.pack('<I', value))
+        return len(request)
+
+    def read(self, endpoint, size, **kwargs):
+        if not self.replies:
+            raise TimeoutError
+        data = bytes(self.replies[:size])
+        del self.replies[:size]
+        return data
+
+
+@unittest.skipUnless(PINNED_LOD.exists(), 'programmer builds are local, gitignored artifacts')
+class PinnedProgrammerTests(unittest.TestCase):
+    def test_pinned_image_holds_the_tables_where_the_writer_reads_them(self):
+        segments = f.read_lod(PINNED_LOD)
+        self.assertEqual(segments[0], (0xA1C000A0, struct.pack('<6I', 0, 0x81C00280, 0, 0, 0, 0)))
+        start, image = segments[1]
+        self.assertEqual(start, 0xA1C00280)
+        self.assertEqual(image[f.MAP - start:][:60],
+                         struct.pack('<15I', 0xFB05FA01, *([0] * 10),
+                                     f.BUFFER, f.BUFFER + 0x10000, f.BUFFER + 0x20000, 0x10000))
+        self.assertEqual(image[f.GEOMETRY_ADDRESS - start:][:28], f.GEOMETRY)
+        self.assertEqual(image[f.LAYOUT_ADDRESS - start:][:len(f.LAYOUT)], f.LAYOUT)
+        # The layout descriptor points at the bank table through its cached alias.
+        self.assertEqual(struct.unpack_from('<I', f.LAYOUT, 4)[0],
+                         f.GEOMETRY_ADDRESS - 0x20000000)
+
+    @unittest.skipUnless(UNFIXED_LOD.exists(), 'programmer builds are local, gitignored artifacts')
+    def test_unfixed_stock_build_is_refused(self):
+        with self.assertRaisesRegex(ValueError, 'Only the pinned'):
+            f.read_lod(UNFIXED_LOD)
+
+    def test_ram_write_allowlist_ends_exactly_at_the_pinned_image(self):
+        end = int(audit(PINNED_LOD)['intervals'][-1][1], 16) | 0xA0000000
+        endpoint = Endpoint([])
+        monitor = f.Monitor(endpoint, Events(), TimeoutError)
+        monitor.write_ram(end - 4, bytes(4))
+        self.assertEqual(len(endpoint.sent), 1)
+        with self.assertRaises(ValueError):
+            monitor.write_ram(end - 4, bytes(8))
+        self.assertEqual(len(endpoint.sent), 1)
+
+    def test_allowlist_end_that_is_not_the_images_end_is_refused_at_load(self):
+        # A build moves the end of the image; a stale end would leave the allowlist too wide.
+        for wrong in (f.IMAGE_END + 4, f.IMAGE_END - 4):
+            with patch.object(f, 'IMAGE_END', wrong):
+                with self.assertRaisesRegex(ValueError, 'load range'):
+                    f.read_lod(PINNED_LOD)
+
+    def test_whole_pinned_image_loads_and_starts_through_the_writers_monitor(self):
+        segments = f.read_lod(PINNED_LOD)
+        device, journal = Device(), Events()
+        f.load_programmer(f.Monitor(device, journal, TimeoutError), segments, journal)
+        self.assertEqual(device.executed, 1)
+        self.assertEqual(journal.events[-1][0], 'programmer_ready')
+        start, image = segments[1]
+        self.assertEqual(bytes(device.ram[start - 0xA1C00000:][:len(image)]), image)
+        self.assertEqual(bytes(device.ram[0xA0:0xB8]),
+                         struct.pack('<6I', 0xFF, 0x81C00280, 0, 0, 0, 0))
 
 
 if __name__ == '__main__':

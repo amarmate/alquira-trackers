@@ -4,7 +4,21 @@ Goal: before any foreign firmware goes on a V24 tracker, be able to restore the 
 flash. Session rule: nothing is written to a tracker's flash until the steps below are done.
 User is on an Apple Silicon Mac only (no Windows, no Coolwatcher).
 
-## Latest continuation: host writer implementation and audit, 2026-10-08
+## Latest continuation: start-only run and recovery, 2026-10-09 Lisbon
+
+User authorized loading/starting the programmer on original 417, without flash
+commands. `tools/rda_programmer_start.py` verified both pre-start flash reads and
+the pinned SRAM load; ROM acknowledged execution, but no READY arrived in 30 s.
+The tool stopped without retry. No mailbox/erase/program/finalize command was sent.
+User pressed RST; vendor USB returned. Two matching full recovery dumps show
+unchanged firmware code and calibration/factory bytes, with 533 changed bytes in
+two runtime-data sectors after reboot. Reset fields are normal (`0x00200000`).
+See [full report and evidence paths](v24-programmer-start-2026-10-09.md).
+Writer gates remain unchanged. Programmer startup and flash writing are unproven.
+Do not automatically repeat the failed start; diagnose the startup path offline.
+52 offline tests passed. The older status sections below are chronological.
+
+## Previous continuation: host writer implementation and audit, 2026-10-08
 
 The user authorized continuing implementation and qualification. The earlier
 “approve specification before coding” requirement is superseded for this work.
