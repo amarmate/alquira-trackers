@@ -1,3 +1,5 @@
+> **Archived 26-10-11.** The current, reconciled account is [rom-flash-access.md](../knowledge/rom-flash-access.md). This note is kept as the dated record of the work; statements here may be superseded there.
+
 # V24 flash writer: operator guide
 
 Status, 2026-10-09 Lisbon: `tools/rda_flash.py` has an audited host implementation and
@@ -8,11 +10,11 @@ and two full reads through the programmer identical to the pre-start read.
 Physical RST restored vendor USB; the recovery reads differ only by the vendor
 firmware's per-boot record. The unmodified SDK build `8a3ea625…9dd1` never reaches
 READY and the writer now refuses it.
-See [the run report](v24-programmer-start-2026-10-09.md).
-A later [query run](v24-programmer-start-2026-10-09.md#query-run-1-the-first-mailbox-commands-answer-and-the-flash-reads-back-unchanged)
+See [the run report](26-10-09-programmer-start.md).
+A later [query run](26-10-09-programmer-start.md#query-run-1-the-first-mailbox-commands-answer-and-the-flash-reads-back-unchanged)
 on 417 sent the writer's start-up check: PING on both mailbox slots and
 GET_FINALIZE_INFO answered, and the flash read back unchanged.
-A [write test](v24-programmer-start-2026-10-09.md#write-test-run-1-program-and-erase-work-and-the-flash-ends-as-it-started)
+A [write test](26-10-09-programmer-start.md#write-test-run-1-program-and-erase-work-and-the-flash-ends-as-it-started)
 then programmed both ends of blank sector `0x3e0000` on 417 and erased it: both
 commands worked and the flash ended identical to the pre-start read.
 END has never been sent to a tracker, no used sector has been written and no
@@ -27,10 +29,10 @@ and `_b_`), all four passes identical, SHA-256 `b0250296…a2c4`. Its code,
 `0x3e0000` is blank. Nothing has been written to it. The other four are untouched.
 At 22:45 UTC the same day a forced warm reset did bring up the ROM monitor on the
 original (`Coolsand Usb`, handshake answered); see
-[Run B](v24-loader-audit-2026-10-08.md#run-b-forced-rom-entry-works-on-1403167417).
+[Run B](26-10-08-loader-audit.md#run-b-forced-rom-entry-works-on-1403167417).
 Statements below that ROM entry failed predate it.
 
-The later [cached-ID and startup review](v24-cached-flash-id-review.md) identifies
+The later [cached-ID and startup review](26-10-08-cached-flash-id-review.md) identifies
 the vendor's cached JEDEC bytes at `0x81c01f51..53`. The authorized four-byte read
 at `0x81c01f50` succeeded at 17:29:58 UTC: `c8 60 16`, GigaDevice, 4 MiB,
 writer ID `0x1660c8`. Exact part variant and current QE/status remain unverified.
@@ -75,9 +77,9 @@ operator; a generic USB serial number does not establish it.
 The pinned LOD SHA-256 is
 `c238911dc478363b1dffdebbffcc407e6e1b1b51ef5c53c9d90ca2fe8bff6c65`: the SDK's USB
 programmer without its 104 MHz clock request and with the V24 charge current.
-The [source/binary audit](v24-loader-audit-2026-10-08.md#host-writer-audit)
+The [source/binary audit](26-10-08-loader-audit.md#host-writer-audit)
 records protocol details for the unmodified build, and the
-[re-pin review](v24-programmer-start-2026-10-09.md#writer-re-pinned-to-the-clean-build)
+[re-pin review](26-10-09-programmer-start.md#writer-re-pinned-to-the-clean-build)
 records what changed and what was checked again for this one.
 
 Execution requires one device already in `Coolsand Usb` ROM mode. The writer
@@ -113,7 +115,7 @@ readback. A successful write would still not prove cold recovery.
 
 Do not create a passing qualification for the original from existing failure
 logs, the simulator or this audit. First obtain a spare and follow the
-[restore specification](v24-flash-restore-spec.md). Hardware experiments require
+[restore specification](26-10-08-flash-restore-spec.md). Hardware experiments require
 the separate decisions described there. There is no safe automatic command to
 generate the missing hardware evidence today.
 

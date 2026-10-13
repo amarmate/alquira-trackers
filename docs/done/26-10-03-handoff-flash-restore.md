@@ -13,7 +13,7 @@ The tool stopped without retry. No mailbox/erase/program/finalize command was se
 User pressed RST; vendor USB returned. Two matching full recovery dumps show
 unchanged firmware code and calibration/factory bytes, with 533 changed bytes in
 two runtime-data sectors after reboot. Reset fields are normal (`0x00200000`).
-See [full report and evidence paths](v24-programmer-start-2026-10-09.md).
+See [full report and evidence paths](26-10-09-programmer-start.md).
 Writer gates remain unchanged. Programmer startup and flash writing are unproven.
 Do not automatically repeat the failed start; diagnose the startup path offline.
 52 offline tests passed. The older status sections below are chronological.
@@ -23,8 +23,8 @@ Do not automatically repeat the failed start; diagnose the startup path offline.
 The user authorized continuing implementation and qualification. The earlier
 “approve specification before coding” requirement is superseded for this work.
 `tools/rda_flash.py` and `tools/test_rda_flash.py` now exist; 26 offline tests pass.
-See [operator guide](v24-flash-writer.md), [updated contract](v24-flash-restore-spec.md)
-and [audit findings](v24-loader-audit-2026-10-08.md#host-writer-audit).
+See [operator guide](../knowledge/rom-flash-access.md#4-writing-and-restoring), [updated contract](../knowledge/rom-flash-access.md#4-writing-and-restoring)
+and [audit findings](26-10-08-loader-audit.md#host-writer-audit).
 
 Audited USB framing against the pinned ROM decoder and mailbox/startup/finalization
 against the SDK and ELF. Fixed missing layout-pointer/capacity checks, startup
@@ -110,7 +110,7 @@ Earlier offline stage:
   the expected `FA01/FB05` structure, but its idle loop has no USB polling: USB
   compatibility is an additional unresolved gate, not implied by the filename.
 - Recorded provenance, addresses, disassembly findings, and an unproven direct
-  RAM-execution avenue in [the loader audit](v24-loader-audit-2026-10-08.md).
+  RAM-execution avenue in [the loader audit](26-10-08-loader-audit.md).
 - No writer implemented, no RAM code executed, and no flash writes made.
 
 ## Continuation, 2026-10-03 14:19 UTC
@@ -134,7 +134,7 @@ Earlier offline stage:
   continuity during ROM entry or recovery after a bad flash. No restart was repeated
   and no flash writes were made. Do not probe the original again.
 - Updated USB power-state documentation and drafted
-  [the restore-tool specification](v24-flash-restore-spec.md). No writer implemented.
+  [the restore-tool specification](../knowledge/rom-flash-access.md#4-writing-and-restoring). No writer implemented.
 - **Next pending:** user to connect only the powered-off spare and supply its printed
   ID; make two identical dump passes before recovery experiments. The specification
   needs approval before writer implementation, as required by the original handoff.
@@ -200,7 +200,7 @@ Then, in order:
    `0x3fa000-0x400000`) and get approval before coding. Prove it on `0x3E0000-0x3F0000`
    (blank in the dump), restore the unit's own dump over itself, write sector 0 last.
 3. Decide with the user whether to test the blank-sector-0 fallback (the one-way bet).
-4. Update `docs/v24-firmware-analysis.md` (still says the USB-mode trigger is unknown) and
+4. Update `docs/knowledge/firmware-analysis.md` (still says the USB-mode trigger is unknown) and
    copy `firmware/backup/*.bin` off the laptop.
 
 ## Gotchas

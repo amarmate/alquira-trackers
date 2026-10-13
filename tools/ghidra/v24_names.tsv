@@ -2,11 +2,11 @@
 # Applied last: a row here overrides every automatic name.
 # A row whose address is not a function start fails the build.
 # address	name	source	evidence
-0x88039f54	uat_transSetCallback	traced	docs/v24-firmware-analysis.md section 9, SDK name
+0x88039f54	uat_transSetCallback	traced	docs/knowledge/firmware-analysis.md section 9, SDK name
 0x88003ebc	boot_LoaderEnter	sdk	copy loops and page-protect calls match the SDK boot_loader.c
 0x8802e16c	hal_DbgPageProtectSetup	sdk	called as in the SDK boot_loader.c: (page, WRITE_TRIGGER, start, end)
 0x8802e1a0	hal_DbgPageProtectEnable	sdk	called after each hal_DbgPageProtectSetup in boot_LoaderEnter
-0x8803968c	tgt_GetHalConfig	sdk	returns 0x8823b300, which boot_LoaderEnter passes to hal_Open; docs/v24-pin-map.md
+0x8803968c	tgt_GetHalConfig	sdk	returns 0x8823b300, which boot_LoaderEnter passes to hal_Open; docs/knowledge/pin-map.md
 0x880396a4	tgt_GetPmdConfig	sdk	returns 0x8823b49c, which decodes as the SDK PMD_CONFIG_T (LDO ids, 4200 mV limits)
 0x82005898	hal_Open	sdk	called by boot_LoaderEnter with tgt_GetHalConfig(), then calls hal_BoardSetup
 0x8200227c	hal_BoardSetup	sdk	stores the config pointer and calls hal_BoardSetupGeneral, as in the SDK hal_config.c

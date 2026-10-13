@@ -1,4 +1,4 @@
-"""Read the V24's pad-function and GPIO registers once, to check docs/v24-pin-map.md.
+"""Read the V24's pad-function and GPIO registers once, to check docs/knowledge/pin-map.md.
 
 Word reads only, through the vendor RDA USB monitor (1e04:0900): the 37 pad
 registers, GPIO direction and level, and the accelerometer type in RAM. No write,

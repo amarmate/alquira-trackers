@@ -1,7 +1,7 @@
 # ReachFar V24 firmware: dump and analysis
 
 Unit analysed: device ID `1403167417`, dumped 2026-10-02 over the magnetic USB cable.
-Companion to [reachfar-v24-tracker-intel.md](reachfar-v24-tracker-intel.md).
+Companion to [tracker-intel.md](tracker-intel.md).
 Anything not read directly from the dump is marked **(unverified)**.
 
 **USB configuration solved, 2026-10-02:** the normal `1782:3d00` data interface accepts
@@ -191,9 +191,9 @@ From least to most risk:
    This covers everything in our current plan (own server, Vodafone IoT APN) with zero risk to
    the firmware.
 2. **Patch the settings store**, e.g. set our APN/server in NVRAM or in `default_config.txt` so
-   they survive `FACTORY`. Needs (a) the record check algorithm, (b) a flash-write path. RDA flash
-   writes go through a RAM-loaded flash programmer (Coolwatcher's `fastpf`, Windows), and the
-   open-source tool cannot write yet.
+   they survive `FACTORY`. Needs (a) the record check algorithm, (b) a flash-write path. The
+   write path now exists on the Mac (RAM programmer, [rom-flash-access.md](rom-flash-access.md));
+   the record check algorithm is still unknown.
 3. **Binary-patch the vendor code.** The code keeps its log strings, which carry function
    names (`sms_apn_handle`, `GprsSockNotify`, ...), and section 11 turns that into a
    decompile with strings and names. Good for targeted changes (e.g. disable the
@@ -205,21 +205,14 @@ From least to most risk:
    dump, and check the RF/PA config matches. Logicrom's docs warn that the wrong RDA download tool
    erases calibration and IMEI, which is what this backup protects against.
 
-A restore of this backup also needs a write path: Coolwatcher (Windows) programs `.lod` files,
-and converting this `.bin` to `.lod` (`@<phys addr>` then one hex word per line, see
-`lib/rda8955/empty.lod` in the Logicrom SDK) is straightforward. A backup and file
-conversion alone do not establish recovery on this board.
-
-**Recovery status, 2026-10-03:** the vendor firmware accepted a request to enter the
-ROM monitor and disappeared from USB, but no ROM USB interface appeared. Removing
-the cable for 5 seconds and reconnecting restored the vendor interface. The vendor
-interface string is `RDA Usb`; the SDK ROM monitor uses `Coolsand Usb`. Whether the
-board loses power or ROM USB fails for another reason remains unresolved. A subsequent
-single register read returned `Reset_Cause=0x00200000`, `BOOT_MODE=0x20`,
-`SW_BOOT_MODE=0x00`: `USB_MONITOR_DISABLE` is clear for that sampled boot. This rules
-out that bit as its USB-disable setting, but does not establish recovery. No raw flash
-write has been performed. See [handoff](handoff-2026-10-03-flash-restore.md) and the
-[proposed restore tool specification](v24-flash-restore-spec.md).
+**Writing and recovery** (updated 26-10-11). The Coolwatcher/Windows route is not used.
+Forced ROM entry, a RAM programmer and full-image install and restore are demonstrated on
+the spare units: see [rom-flash-access.md](rom-flash-access.md). The 2026-10-03 observation
+that the vendor firmware accepted a ROM-monitor request and no ROM USB interface appeared
+predates the force-bit method and is superseded; the register read of that day
+(`Reset_Cause=0x00200000`, `BOOT_MODE=0x20`, `USB_MONITOR_DISABLE` clear) still stands.
+Backup and file conversion alone never established recovery. No raw flash write has been
+performed on the original `1403167417`.
 
 ## 9. Working native USB configuration
 
@@ -345,7 +338,7 @@ or `lz,0,1` in summer.
 `tools/ghidra/build.sh` rebuilds a Ghidra decompile of the 2026-10-03 backup. It is
 offline and takes about 15 minutes. It refuses to run if the backup does not match
 `firmware/backup/SHA256SUMS`. Design and evidence:
-[spec](superpowers/specs/2026-10-08-v24-readable-decompile-design.md), section 11.
+[spec](../done/superpowers/specs/26-10-08-readable-decompile-design.md), section 11.
 
 ```sh
 tools/ghidra/build.sh        # needs: brew install ghidra openjdk@21

@@ -1,10 +1,11 @@
 #!/bin/bash
 # Run in the existing rda-usb-builder container, with /work/logicrom and /work/csdtk.
 set -euo pipefail
-export LD_LIBRARY_PATH=/work/csdtk/lib
-cd /work/logicrom
+toolchain=${V24_TOOLCHAIN:-/work/csdtk}
+export LD_LIBRARY_PATH="$toolchain/lib"
+cd "${V24_LOGICROM_WORK:-/work/logicrom}"
 mkdir -p build
-cc=/work/csdtk/bin/mips-elf-gcc
+cc="$toolchain/bin/mips-elf-gcc"
 flags=(-Os -g -ffunction-sections -fdata-sections -fsigned-char -fno-strict-aliasing
        -Wall -Wextra -Werror -march=xcpu -mtune=xcpu -Wa,-march=xcpu,-mtune=xcpu
        -mips16 -minterlink-mips16 -msoft-float -mexplicit-relocs -mmemcpy -mmips-tfile
@@ -17,6 +18,6 @@ flags=(-Os -g -ffunction-sections -fdata-sections -fsigned-char -fno-strict-alia
 "$cc" "${flags[@]}" -nostartfiles -nostdlib -nodefaultlibs \
     -Wl,--gc-sections,--relax,-Map,build/probe.map -T build/linkerscript.ld \
     build/main.o -Lsdk/lib/rda8955 -Lruntime -lrda_logicrom -lc -lgcc -lm -o build/probe.elf
-/work/csdtk/bin/mips-elf-objcopy -O binary build/probe.elf build/probe.raw.bin
-/work/csdtk/bin/mips-elf-size build/probe.elf
-/work/csdtk/bin/mips-elf-readelf -h -l build/probe.elf
+"$toolchain/bin/mips-elf-objcopy" -O binary build/probe.elf build/probe.raw.bin
+"$toolchain/bin/mips-elf-size" build/probe.elf
+"$toolchain/bin/mips-elf-readelf" -h -l build/probe.elf

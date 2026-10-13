@@ -10,7 +10,7 @@ the power key started the tracker application, for the lines the application set
 Driving the three LED pins on request, one at a time, confirmed them: GPIO 4 is the blue GPS
 LED, GPIO 27 the red SIM LED and GPIO 28 a strong white light between the two, all high = on.
 Function addresses refer to the decompile described in
-[the firmware analysis](v24-firmware-analysis.md), section 11.
+[the firmware analysis](firmware-analysis.md), section 11.
 
 ## 1. How the pins were found
 
@@ -114,8 +114,8 @@ Driving GPIO 4 on the live unit lit the blue LED and GPIO 27 the red one (sectio
 - Where `KEYIN_1` goes. The chip latches `KEYIN_0` to `KEYIN_3` at reset as boot-mode pins,
   and `KEYIN_1` high forces the ROM monitor. `KEYIN_2` and `KEYIN_3`, the two LED lines above,
   are among them and read low at reset. See the
-  [loader audit](v24-loader-audit-2026-10-08.md#rom-entry-without-the-vendor-firmware-offline-2026-10-09).
-- The boot sector's USB-download key, which the [loader audit](v24-loader-audit-2026-10-08.md)
+  [loader audit](../done/26-10-08-loader-audit.md#rom-entry-without-the-vendor-firmware-offline-2026-10-09).
+- The boot sector's USB-download key, which the [loader audit](../done/26-10-08-loader-audit.md)
   found as key code `0x4d`, matrix index 27. With eight lines per row that is `KEYIN_3` with
   `KEYOUT_3`. On this board those two pads are the white LED line and the 32 kHz clock line, so
   my reading is that no button presents that key. Not verified.
@@ -318,4 +318,4 @@ Flashing update, 2026-10-09: the Mac USB programmer has now written flash, and
 spare 412 has recovered through RST with its boot word blank. A Logicrom image,
 blank-word trial installer and multi-block recovery path are prepared and tested
 offline; the multi-block hardware rehearsal and core compatibility remain pending.
-See [Logicrom trial preparation](v24-logicrom-trial.md).
+See [Logicrom trial preparation](../in-process/26-10-09-logicrom-trial.md).

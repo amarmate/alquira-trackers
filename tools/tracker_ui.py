@@ -3,7 +3,7 @@
     .venv/bin/python tools/tracker_ui.py        # then open http://127.0.0.1:8724
 
 Talks to the firmware's own command parser (interface 1 of 1782:3d00, see
-docs/v24-firmware-analysis.md section 9): every command goes out as AT:<cmd>#\\r in
+docs/knowledge/firmware-analysis.md section 9): every command goes out as AT:<cmd>#\\r in
 one transfer, and success is the firmware's own "AT RETURN:<keyword>" line.
 
 The settings shown in the page come from tools/tracker_settings.json. That file is

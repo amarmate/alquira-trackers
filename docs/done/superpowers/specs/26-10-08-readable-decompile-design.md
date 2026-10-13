@@ -14,7 +14,7 @@ Everything here is offline. Nothing is sent to a tracker and nothing is written 
 | **A. Readable decompile** | reproducible build, input fixes, automatic names | this document |
 | B. Command parser and settings store | hand cleanup (types, structs, names), verified against live logs and captures; pure logic lifted into host-runnable code with tests | written after A, because its shape depends on what A shows |
 | C. Later subsystems | server link, GPS and power, pin map | one spec each, as needed |
-| Patching a device | binary patches built on B | gated on the flash-restore work in `v24-flash-restore-spec.md`; not planned here |
+| Patching a device | binary patches built on B | gated on the flash-restore work in `26-10-08-flash-restore-spec.md`; not planned here |
 
 ## 2. What is wrong with the current export
 
@@ -127,7 +127,7 @@ A result far from the expected column means the fix did not work and is investig
 before the next step.
 
 Spot check: `sms_apn_handle`, `get_apn_handle` and `set_url_port` exist by name, and the
-strings in their bodies match the log lines captured in `v24-firmware-analysis.md`
+strings in their bodies match the log lines captured in `26-10-08-firmware-analysis.md`
 section 9.
 
 ## 9. Open questions and risks
@@ -156,7 +156,7 @@ access, and a source tree that compiles.
 ## 11. Amendments from planning and implementation (2026-10-08)
 
 Found while writing and running the implementation plan
-(`docs/superpowers/plans/2026-10-08-v24-readable-decompile.md`). Where this section and
+(`docs/done/superpowers/plans/26-10-08-readable-decompile.md`). Where this section and
 sections 2, 5, 6, 8 or 9 disagree, this section holds. Everything here was read from the
 backup or from the decompile it produced, unless marked **(unverified)**.
 

@@ -3,7 +3,7 @@
 Execution starts in an already established ROM monitor, never resets a running
 tracker to get there. Board qualification is required before loading the pinned
 programmer (its startup itself can write flash status registers). See
-docs/v24-flash-writer.md. No hardware qualification is supplied with this tool.
+docs/knowledge/rom-flash-access.md#4-writing-and-restoring. No hardware qualification is supplied with this tool.
 """
 import argparse
 import hashlib

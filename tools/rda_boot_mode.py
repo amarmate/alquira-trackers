@@ -2,7 +2,7 @@
 
 Default: print the request without opening USB. Use --read --output <new log>
 for one live attempt. No restart, register write, or flash command is available.
-SDK references and address mapping: docs/v24-flash-restore-spec.md.
+SDK references and address mapping: docs/knowledge/rom-flash-access.md#4-writing-and-restoring.
 """
 import argparse
 from datetime import datetime, timezone

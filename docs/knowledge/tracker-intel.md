@@ -72,7 +72,7 @@ Additional hard requirements:
 **Vodafone SME IoT SIMs have no SMS.** That means: while a Vodafone IoT SIM is inside the tracker,
 every SMS you send to it is silently dropped by the network. Nothing you type on your phone reaches
 the device. The server channel provides remote control. **Local USB configuration also works**
-with that SIM installed: see section 6 and [the firmware investigation](v24-firmware-analysis.md#9-working-native-usb-configuration).
+with that SIM installed: see section 6 and [the firmware investigation](firmware-analysis.md#9-working-native-usb-configuration).
 
 ---
 
@@ -239,12 +239,12 @@ Minimal server behaviour to keep a device alive and reporting:
 **Preferred local setup: USB, verified 2026-10-02.** Leave the IoT SIM installed and the
 tracker powered on. Interface 1 of `1782:3d00` accepts `AT:apn,sme.vodafone.iot,,,90128#`
 followed by CR, then, after its automatic reboot, `AT:ip,47.106.163.223,8888#` followed
-by CR. Use [tools/rda_config.py](../tools/rda_config.py), which sends each command in one
+by CR. Use [tools/rda_config.py](../../tools/rda_config.py), which sends each command in one
 transfer, records the reply and checks its acknowledgement. Read back with `AT:getapn#`
 and `AT:ts#`. The APN survived reboot, data activation succeeded and the device connected
-to the vendor server. See [full commands and evidence](v24-firmware-analysis.md#9-working-native-usb-configuration).
+to the vendor server. See [full commands and evidence](firmware-analysis.md#9-working-native-usb-configuration).
 For every other setting, use the local settings page `tools/tracker_ui.py`
-(see [section 10 of the firmware notes](v24-firmware-analysis.md#10-settings-ui)).
+(see [section 10 of the firmware notes](firmware-analysis.md#10-settings-ui)).
 
 The SMS/staging-SIM procedure below remains an alternative for units where USB is unavailable.
 All settings live in the tracker, not in the SIM, so they survive the swap.

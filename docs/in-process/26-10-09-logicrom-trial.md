@@ -36,6 +36,33 @@ and the boot word blank. **Do not start the core on any other unit until this is
 understood.** See
 [The restore stopped](#the-restore-stopped-the-flash-ignores-erase--2026-10-09).
 
+**Update, 19:11 UTC:** the refused erase was block protection (BP2–BP0) left by the
+core's runs. One status write cleared it and 412 was restored; it booted its vendor
+firmware at 18:45. Trial 4, the core with the charger-disconnected report ignored, was
+then installed and started on 412: **the port still left after 9.9 s**, and the ROM
+came back by itself five minutes later, as it had in trial 2. The tail is intact and
+the status registers read `0x00`/`0x02`. 412 is in the programmer on USB with that core
+installed and the boot word blank; it has not been restored. See
+[Trial 4](#trial-4-the-port-still-leaves-at-99-s--2026-10-09).
+
+**Update, 2026-10-10 10:46 UTC:** a second start of that install did the same: port
+gone after 9.9 s, the ROM back by itself five minutes later, registers still
+`0x00`/`0x02`. 412 has no SIM, and the core has a no-SIM reset; that is the candidate
+for the five minutes, to be tested with a SIM. 412 is unchanged otherwise and not
+restored. See
+[Second start of the trial-4 install](#second-start-of-the-trial-4-install-the-timer-again-no-lock--2026-10-10).
+
+**Update, 2026-10-10 11:05 UTC:** a third start with a SIM in the unit: the port left
+after 9.9 s and the ROM still came back by itself, after 308 s. The SIM did not stop
+the reset. 412 is in the programmer on USB with the SIM inside, registers
+`0x00`/`0x02`, not restored. See
+[Third start, with a SIM](#third-start-with-a-sim-the-reset-still-comes--2026-10-10).
+
+**Update, 2026-10-10 14:04 UTC:** 412 is restored. All 4 MiB equal its vendor image
+again (`af47612a…78b3`) and the boot word is written. After RST at 14:07 UTC it came
+back on USB as the vendor firmware (`RDA Usb`, bcdDevice `0x3410`). See
+[Restore of 412 after the SIM start](#restore-of-412-after-the-sim-start-passed--2026-10-10).
+
 ## Prepared image
 
 Local artifacts are in `firmware/live/usb-programmer-build/logicrom/` (gitignored,
@@ -74,7 +101,7 @@ bad headers, CRCs, lengths and changes outside the core/app partitions.
 
 The LOD's `FACT_SETTINGS_BASE=0x3f4000` conflicts with the factory address used by
 its code, `0x3fe000`; see the prior binary review in
-[the pin map](v24-pin-map.md#8-fit-with-logicrom). Neither address is overwritten
+[the pin map](../knowledge/pin-map.md#8-fit-with-logicrom). Neither address is overwritten
 by installation. Do not interpret header metadata as permission to relocate or
 erase factory data. The LOD sector map also differs from the actual programmer's
 erase geometry; the installer uses the pinned, checked runtime geometry:
@@ -700,7 +727,7 @@ So the port's life is the time between a "connected" and a "disconnected" report
 the core would go on running without USB. That fits the fixed 9.9 s, the missing
 restart and the unchanged flash. It does not explain why the board reports no charger
 with the cable in; how V24 presents charging to the SoC is untraced
-([pin map](v24-pin-map.md)). Not shown: that the core is alive after the port
+([pin map](../knowledge/pin-map.md)). Not shown: that the core is alive after the port
 closes, and what the zero bytes are.
 
 ### Trial 4, prepared, not run: ignore the disconnected report
@@ -720,6 +747,8 @@ closes, and what the zero bytes are.
   console to work with. A port that still leaves at 9.9 s means something else takes
   it down, a power-down included.
 - **On hold:** trial 4 cannot be installed while the flash ignores erase; see below.
+- **Run at 18:56 UTC**, after the lock was cleared and 412 restored; see
+  [Trial 4](#trial-4-the-port-still-leaves-at-99-s--2026-10-09).
 
 ### The restore stopped: the flash ignores erase — 2026-10-09
 
@@ -740,7 +769,7 @@ Times are UTC.
 - **What it looks like.** The programmer audit of 2026-10-09 described this exact
   signature for block protection: "If the chip's block-protect bits covered this
   sector, the commands would report DONE and the read-back would show no change"
-  ([programmer start](v24-programmer-start-2026-10-09.md)). The chip answers its id,
+  ([programmer start](../done/26-10-09-programmer-start.md)). The chip answers its id,
   so it is taking commands. The programmer resets the chip at start-up
   (`hal_SpiFlashOpen`: `0x66`, `0x99`), which clears a suspended erase and volatile
   settings, and the erase is still ignored.
@@ -1044,6 +1073,199 @@ What this settles and what it does not:
   look before anything is written.
 - Still not established: what in the core sets the bits and when. The restore
   after trial 2 needed no clearing.
+
+### Trial 4: the port still leaves at 9.9 s — 2026-10-09
+
+Run from the session on the user's go, with `…-412-trial-4.run.sh`. Its journal is
+`…-412-trial-4-2`: the name without `-2` was taken by the attempt of 17:12 UTC, which
+stopped at `Expected RDA Usb` before sending anything. The three trial-4 scripts were
+changed to that name. Times are UTC.
+
+- **Install and start.** Journal `firmware/live/2026-10-09-logicrom-412-trial-4-2/`,
+  exit 0, 18:56:40 to 19:01:02, 261.5 s. Pre-start image SHA-256
+  `af47612a1ccd73b8c5190adfb45f83a3256423f9d943e6da0324b6341e0978b3`; against trial 3's
+  pre-start image only `0x3ac000` differs. 46 sectors verified, 802 mailbox commands,
+  none failed. Both ROM reads before the exit equal the blank-word target, SHA-256
+  `42cc03d37a0d2671de14defef2452f84f41669efc8c8193ec5fc645ec57d0a12`, and carry both
+  changes: `0x00006000` at `0x232d88` and `0x2432` at `0x23c9d0`. Monitor exit sent
+  at 19:01:02.
+- **USB.** `1782:4d11` enumerated at 19:01:05.45, not blocked, bound as CDC, serial
+  node `/dev/cu.usbmodem1101`. It left at 19:01:15.38 after a transaction error on
+  endpoint `0x82`: **9.9 s, as in the three starts before.**
+- **Console** (`…-412-trial-4-2-console.jsonl`). The port opened 3.33 s after the
+  logger started. Nine one-second bursts of zero bytes followed, about 893 each (868 in
+  trial 3). `devinfo`, sent at 6.55 s, came back as `devinfo\r\n\n` and was not
+  answered. Of 8048 bytes received, those ten are the only non-zero ones.
+- **Afterwards.** At 19:04:10 there was no tracker on USB and no serial node. At
+  19:06:17.25 the ROM (`1e04:0900`) enumerated again, before the session had asked
+  for RST.
+- **ROM check 1** (`…-412-trial-4-2-rom-check-1/`, read-only). ROM hash as expected;
+  `Reset_Cause=0x00220000`, the installer's force bit still set, so the return was
+  not an RST. Two reads agree, SHA-256
+  `901e73860ea03019186a0565cd8940336128055f2a00d2c41ddceb50e6734122`. Word 0 blank;
+  core and app unchanged; 143 sectors changed, all inside `0x2f0000–0x3fa000`; no
+  zeroed head from `0x3f6000` up; the tail equals 412's backup, 0 bytes differing.
+- **Status registers** (`firmware/live/2026-10-09-status-412-2/`,
+  `--read-status --from-rom`, 19:08:52 to 19:10:35, exit 0). Both status commands
+  DONE: register 1 is `0x00` and register 2 is `0x02`, QE only. **No block protection
+  after this run.** The flash is `901e7386…4122` before and after.
+
+**Ignoring the disconnected report did not keep the port.** The handler at
+`0x8823c9c8` is therefore not what takes it down, or not the only thing that does.
+
+**The ROM came back on a timer, as in trial 2.**
+
+| Run | Core on USB | Port gone | ROM back | After the port left | `Reset_Cause` |
+| --- | --- | --- | --- | --- | --- |
+| Trial 2 | 15:26:41.67 | 15:26:51.61 | 15:31:54.65 | 303.0 s | `0x00220000` |
+| Trial 4 | 19:01:05.45 | 19:01:15.38 | 19:06:17.25 | 301.9 s | `0x00220000` |
+
+Trial 2's return was put down to a cable replug. Two returns 1.2 s apart in their
+timing, both with the force bit still set, point at the core instead: it goes on
+running after it leaves USB and resets itself about five minutes later, and with no
+boot word that reset ends in the ROM. So the port leaving at 9.9 s is not a
+power-down. Trial 3 does not test this: its cable was replugged about three minutes after the
+start, and no device came in the four minutes after that.
+
+On the lock: the registers were `0x00`/`0x02` before this run and are after it. A
+first boot that ends in the core's own reset does not set the protection. The lock
+found at 17:10 followed a first boot and a second boot, each ended by RST.
+
+The user confirmed afterwards that nothing was touched before 19:06:17, and that 412
+has no SIM.
+
+**A candidate for the five-minute reset, read from the code, not proven.** The core's
+network state machine is at `0x882323d0`, run from a timer callback at `0x88232968`
+that re-arms itself with the argument 100. Its state 1 (`0x88232444`) counts its
+passes in `0x82300814`; at 60 it prints `NW: No SIM, reset` (string at `0x88242bf0`)
+and calls the reset function at `0x88232e08`. In that state a pass comes every 20
+timer calls. Not worked out: the timer's unit, so whether those 60 passes are the
+five minutes seen, and when the state is entered. A SIM in the unit would test it.
+
+On the port: the USB close at `0x880fcd6c` has three direct callers in a MIPS16
+decode of the core, the handler trial 4 patched and two in a boot-time routine at
+`0x8808aff4–0x8808b070`, and no pointer to it. Calls from 32-bit code would not show
+in that decode. The function compares its argument with a stored mode before doing
+anything, so it may be a mode switch rather than a plain close.
+
+Not established: what ends the port at 9.9 s; that the five-minute reset is the
+no-SIM one; what sets the block protection.
+
+State of 412: on USB in the status programmer's session, core 0.5.1 with both changes
+installed, boot word blank, registers `0x00`/`0x02`, not restored. RST returns it to
+the ROM. The recovery target is `…-412-trial-4-2/before-startup.bin`; the restore is
+`…-412-trial-4-recover.run.sh`, a writing run with its own go.
+
+Prepared on the user's go: `…-412-trial-4-restart.run.sh` waits for RST, reads the
+flash twice against ROM check 1's read, starts the installed core once more and logs
+USB for seven minutes; a status read follows. It asks whether the ROM returns on the
+timer after a second boot too, and whether a second boot sets the protection. It
+waited from 19:14 to 20:25 UTC, no RST came, and nothing was sent.
+
+### Second start of the trial-4 install: the timer again, no lock — 2026-10-10
+
+Run from the session with that script (`--in-rom`), after the user's RST at 10:33:11
+UTC on 2026-10-10. Journal `firmware/live/2026-10-09-logicrom-412-trial-4-2-restart-1/`;
+the names keep the trial's date. Nothing was written by the host. Times are UTC.
+
+- **Start.** `Reset_Cause=0x00200000`; two reads equal ROM check 1's
+  (`901e7386…4122`); exit sent at 10:35:06.
+- **USB.** `1782:4d11` enumerated at 10:35:08.77 and left at 10:35:18.71: 9.9 s, the
+  fifth time. Console as before: zero bytes, `devinfo` echoed and not answered.
+- **The ROM came back by itself at 10:40:15.36**, 296.7 s after the port left, with
+  no RST asked for or reported. After the two first boots it took 303.0 and 301.9 s.
+- **ROM check 2** (`…-412-trial-4-2-rom-check-2/`). `Reset_Cause=0x00200000`; the
+  force bit was already clear, so here it does not tell the core's reset from an RST.
+  Two reads agree, SHA-256
+  `b738ea1a51a7f06cf4d31d0bcac22ccb84723ec2a23a0d4ebce29901b412a5e0`. Fourteen 4 KiB
+  sectors changed since check 1, all in `0x2f0000–0x300000`, as in trial 3's second
+  boot. The tail equals 412's backup.
+- **Status registers** (`firmware/live/2026-10-10-status-412/`, 10:43:34 to 10:45:17,
+  exit 0): `0x00` and `0x02`. **No block protection after a second boot either.**
+
+What this settles: the five-minute reset does not depend on a first boot or on the
+force bit. And two runs that ended in the core's own reset left the registers clear,
+while the lock of 2026-10-09 followed two starts that were each ended by RST. An RST
+while the core runs is the candidate left for what leaves the bits set; untested.
+
+State of 412: on USB in the status programmer's session, flash `b738ea1a…a5e0`, core
+installed, boot word blank, registers `0x00`/`0x02`, not restored.
+
+Next, needing its own go: the same start with a SIM in the unit (no PIN), left for
+seven minutes. No return of the ROM would confirm the no-SIM reset; the RST that then
+ends the run, followed by a status read, tests the lock candidate.
+
+### Third start, with a SIM: the reset still comes — 2026-10-10
+
+The user put a SIM into 412 and pressed RST at 10:49:01 UTC; that was the go. Same
+script, now logging for ten minutes; journal `…-412-trial-4-2-restart-2/`. Nothing was
+written by the host. Times are UTC.
+
+- **Start.** `Reset_Cause=0x00200000`; two reads equal ROM check 2's
+  (`b738ea1a…a5e0`); exit sent at 10:50:08.
+- **USB.** `1782:4d11` enumerated at 10:50:09.66 and left at 10:50:19.56: 9.9 s, the
+  sixth time. Console as before.
+- **The ROM came back by itself at 10:55:27.59**, 308.0 s after the port left.
+- **RAM** (`firmware/live/2026-10-10-logicrom-412-ram-peek.py`, journal
+  `…-412-ram-peek-1/`, read-only, before anything else ran). The pages at
+  `0x82300000` and `0x820a4000` read `ff 11 55 aa` repeated. The core's variables
+  cannot be read from the ROM after its reset.
+- **ROM check 3** (`…-412-trial-4-2-rom-check-3/`). Two reads agree, SHA-256
+  `2d7d9f49ba0249565bfa02581d08aa85f68bf96b3d76d707e6357e0c27d6f773`. Three sectors
+  changed since check 2 (`0x2fc000`, `0x2fe000`, `0x2ff000`), 2857 bytes, with no new
+  text and nothing shaped like an IMSI. The tail equals 412's backup.
+- **Status registers** (`firmware/live/2026-10-10-status-412-2/`, exit 0, 11:04:27):
+  `0x00` and `0x02`.
+
+| Start | SIM | ROM back after the port left |
+| --- | --- | --- |
+| Trial 2, first boot | no | 303.0 s |
+| Trial 4, first boot | no | 301.9 s |
+| Trial 4 install, second boot | no | 296.7 s |
+| Trial 4 install, third boot | yes | 308.0 s |
+
+**A SIM in the unit did not stop the reset.** Two readings are open: the core does
+not see the SIM on this board, or the reset is not the no-SIM one (the core also has
+`NW: Reg. fail, rebooting`). The 308 s is outside the 297 to 303 s of the three runs
+without a SIM, but one run is not enough to say the path changed. Not checked: that
+the SIM works elsewhere, and that it registers on 2G.
+
+State of 412: on USB in the status programmer's session, SIM inside, flash
+`2d7d9f49…f773`, core installed, boot word blank, registers `0x00`/`0x02`, not
+restored. The lock candidate (an RST during a run) was not tested: no run needed one.
+
+### Restore of 412 after the SIM start: passed — 2026-10-10
+
+The user gave the go for the restore on 2026-10-10 and stated that the SIM works and
+has 2G service. That is the user's statement, not something measured here. It weakens
+the reading "the SIM is at fault" for the third start; it does not decide between
+"the core does not see the SIM on this board" and "the reset is another one".
+
+Before the run:
+
+- The registers read `0x00`/`0x02` at 11:04 UTC
+  (`firmware/live/2026-10-10-status-412-2`).
+- The kernel's USB log shows no arrival or departure of the tracker between that
+  read's last reopen (11:02:48 UTC) and the restore, so nothing ran on 412 in between.
+- The restore target `…-412-trial-4-2/before-startup.bin` hashed `af47612a…78b3`.
+
+Run: `firmware/live/2026-10-09-logicrom-412-trial-4-recover.run.sh`, journal
+`firmware/live/2026-10-09-logicrom-412-trial-4-2-recover`, 14:00 to 14:04 UTC
+(192 s), exit 0. It carried no `--repair-tail`.
+
+- 72 changed sectors were erased, written and verified one by one.
+- The full read afterwards hashed `af47612a…78b3`: every byte equals what trial 4 read
+  before its start, which is 412's vendor image. The journal says
+  `full_image_restored`, `flash_identical_to_pre_start: true`.
+- The boot word was written (`boot_word_withheld: false`).
+
+Boot check, read from the Mac only (kernel USB log and IORegistry, nothing sent to
+the tracker): the user pressed RST. The programmer's entry (`1e04:0900`, bcdDevice
+`0x948c`) left at 14:07:23 UTC and the unit enumerated again at 14:07:30 UTC as
+`1e04:0900` with bcdDevice `0x3410` and interface `RDA Usb`, which is the vendor
+firmware. So 412 boots its vendor firmware again. The SIM was inside for this boot.
+Not checked: whether the vendor firmware registered on the network with it, and the
+flash was not read back after the boot.
 
 ### Report for Waybyte — draft, not sent
 

@@ -10,9 +10,9 @@ The separate restoration then returned all 4 MiB exactly to step B's pre-start
 image. The boot word is valid again; after the user's final RST, vendor `RDA Usb`
 returned with normal `Reset_Cause=0x00200000`. Full power-loss recovery and Logicrom
 compatibility remain untested. The original handoff below is retained with state
-updates; full evidence is at the end of `docs/v24-loader-audit-2026-10-08.md`.
+updates; full evidence is at the end of `docs/done/26-10-08-loader-audit.md`.
 
-**Subsequent offline preparation:** [Logicrom trial preparation](v24-logicrom-trial.md)
+**Subsequent offline preparation:** [Logicrom trial preparation](../in-process/26-10-09-logicrom-trial.md)
 now records the compiled probe, unit-bound core/app image, full `--finish` recovery,
 trial installer and simulated interruption/recovery tests. No additional hardware
 run was performed. The older description below of `--finish` as block-0-only is
@@ -22,7 +22,7 @@ historical; it now restores all changed unprotected sectors from the saved image
 
 The user wants their own firmware on the ReachFar V24 GPS tracker (RDA8955 chip),
 built with the Logicrom SDK. Three things decide that: the pin map
-(`docs/v24-pin-map.md`), a way to write flash from the Mac, and whether Logicrom's
+(`docs/knowledge/pin-map.md`), a way to write flash from the Mac, and whether Logicrom's
 closed core suits the board. This task is the second one.
 
 Writing flash from the Mac now works. What is not yet known is whether a unit can
@@ -71,8 +71,8 @@ and the protected tail against the backup, never the whole image.
 
 ## What has been done
 
-All on 2026-10-09. Full records: `docs/v24-programmer-start-2026-10-09.md` (unit 417)
-and `docs/v24-loader-audit-2026-10-08.md` from line 790 (unit 412).
+All on 2026-10-09. Full records: `docs/done/26-10-09-programmer-start.md` (unit 417)
+and `docs/done/26-10-08-loader-audit.md` from line 790 (unit 412).
 
 | Run | Unit | Result |
 | --- | --- | --- |
@@ -152,7 +152,7 @@ The bullets below describe the earlier 13:50 state.
 - 417 is not on the cable.
 - Uncommitted work in the tree, from this and other sessions:
   `tools/rda_programmer_start.py`, `tools/test_rda_programmer_start.py`,
-  `docs/v24-loader-audit-2026-10-08.md`, this file, and others.
+  `docs/done/26-10-08-loader-audit.md`, this file, and others.
 
 ## What is next
 
@@ -170,7 +170,7 @@ that same journal on the simulated chip. The test failed before the change.
 Offline validation passed. Read-only preflight found `RDA Usb` and normal
 `Reset_Cause=0x00200000`. No live erase/program has been performed in this follow-up.
 Step A's two commands and failure table are prepared at the end of
-`docs/v24-loader-audit-2026-10-08.md`; the next action is the per-run go for the
+`docs/done/26-10-08-loader-audit.md`; the next action is the per-run go for the
 blank-and-stop command on spare 412. The implementation-needed text below is the
 original recommendation, now superseded by this update.
 
@@ -296,7 +296,7 @@ print(json.dumps(snapshot(backend)), flush=True); os._exit(0)"
 
 ## How results are written up
 
-Each live run gets a section in `docs/v24-loader-audit-2026-10-08.md`: a
+Each live run gets a section in `docs/done/26-10-08-loader-audit.md`: a
 "prepared, not run" section first with the plan, the failure table and the
 command, then a section for the run with a table of elapsed times and what it
 does and does not establish. Readings that are not results are labelled as such.
@@ -304,9 +304,9 @@ Wording is plain and literal.
 
 ## Where to read more
 
-- `docs/v24-loader-audit-2026-10-08.md`: line 657 on, ROM entry without the vendor
+- `docs/done/26-10-08-loader-audit.md`: line 657 on, ROM entry without the vendor
   firmware; line 790 on, the reset tests and part one.
-- `docs/v24-programmer-start-2026-10-09.md`: how the programmer was made to start,
+- `docs/done/26-10-09-programmer-start.md`: how the programmer was made to start,
   and the runs on 417.
-- `docs/v24-flash-writer.md`: the writer `tools/rda_flash.py` and its gates.
-- `docs/v24-pin-map.md`: the pin map.
+- `docs/knowledge/rom-flash-access.md#4-writing-and-restoring`: the writer `tools/rda_flash.py` and its gates.
+- `docs/knowledge/pin-map.md`: the pin map.

@@ -8,7 +8,7 @@ programmer reached READY, reported JEDEC `c8 60 16`, and two full flash reads
 through it matched the pre-start read. The entry point is `boot_Sector`, not the
 loader, so the start-up section further down is incomplete. Details, evidence
 and what is still open are in
-[the run report](v24-programmer-start-2026-10-09.md). Flash writing is still
+[the run report](26-10-09-programmer-start.md). Flash writing is still
 not qualified. The paragraph below predates this.
 
 Latest result, 2026-10-09 Lisbon: the user-authorized start-only experiment on
@@ -16,13 +16,13 @@ Latest result, 2026-10-09 Lisbon: the user-authorized start-only experiment on
 no programmer READY within 30 seconds. No mailbox/erase/program/finalize command
 was sent. Physical RST restored vendor USB; two matching recovery dumps confirm
 unchanged code and calibration/factory bytes, with 533 changed runtime-data bytes
-after reboot. See [start-only run and recovery](v24-programmer-start-2026-10-09.md).
+after reboot. See [start-only run and recovery](26-10-09-programmer-start.md).
 No successful programmer startup or flash-write qualification is established.
 Earlier status statements below are chronological.
 
 Previous status: host writer implemented and audited offline; see
-[host writer audit](#host-writer-audit) and [operator guide](v24-flash-writer.md).
-Later [cached-ID and startup review](v24-cached-flash-id-review.md) verifies a
+[host writer audit](#host-writer-audit) and [operator guide](../knowledge/rom-flash-access.md#4-writing-and-restoring).
+Later [cached-ID and startup review](26-10-08-cached-flash-id-review.md) verifies a
 single vendor-RAM read location and matching vendor/programmer SPI settings
 (`9`, `0x291`). After two USB preflight aborts with no request sent, the authorized
 single read succeeded at 17:29:58 UTC: cached JEDEC `c8 60 16`, GigaDevice, 4 MiB,
@@ -390,7 +390,7 @@ this continuation did not rebuild or change it.
 Note, 2026-10-09: this build never reaches READY, and the writer is now pinned to
 the clean build `c238911d…6c65`. The addresses in this section are the unmodified
 build's; the
-[re-pin review](v24-programmer-start-2026-10-09.md#writer-re-pinned-to-the-clean-build)
+[re-pin review](26-10-09-programmer-start.md#writer-re-pinned-to-the-clean-build)
 gives the new ones and what was checked again.
 
 ### Protocol and binary findings
@@ -451,7 +451,7 @@ original backup files pass their existing SHA-256 manifest. No USB discovery,
 ROM-entry attempt, RAM load or flash operation was performed here.
 
 Remaining hardware gates and evidence-generation instructions are in
-[the operator guide](v24-flash-writer.md#qualification-evidence-still-needed).
+[the operator guide](26-10-08-flash-writer.md#qualification-evidence-still-needed).
 The original remains unqualified and blocked; offline tests do not establish a
 safe live write or cold recovery.
 
@@ -695,7 +695,7 @@ the one Run B reached.
 
 On this board: 417 has read boot mode `0x20` after each RST so far, so `KEYIN_0` to
 `KEYIN_3` are low at reset. `KEYIN_2` and `KEYIN_3` are the red LED and white
-light lines ([pin map](v24-pin-map.md)); their being low is what leaves the USB
+light lines ([pin map](../knowledge/pin-map.md)); their being low is what leaves the USB
 monitor on. `KEYIN_1` is GPIO 26, in the board's keypad mask, with no tracker
 code found for it. Where it goes on the PCB is not known, nor whether the
 tracker's button is on it.
@@ -982,7 +982,7 @@ vendor's store (`0x3a3000`), one of the five that already differed from the back
 
 ### Blank-word test, step A: separate stop and finish (prepared, not run)
 
-Prepared on 2026-10-09 from `handoff-2026-10-09-blank-word-part-two.md`.
+Prepared on 2026-10-09 from `26-10-09-handoff-blank-word-part-two.md`.
 The new `--blank-word-stop` mode runs the existing start and query checks, calls
 `blank_boot_word()`, and returns after the full flash read proves only bytes 0-3
 changed to `ff ff ff ff`. It sends no debug reset or END after blanking. It leaves

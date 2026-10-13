@@ -3,8 +3,10 @@ import unittest
 
 from rda_flash import FLASH_SIZE, LIVE_ROOT, MAGIC
 from rda_logicrom_image import (APP_START, APP_END, NVM_FORMAT_SIZE_AT, USB_UNPLUG_BRANCH_AT,
-                                fix_nvm_format_size, keep_usb_open, pack_app, read_core,
-                                validate_trial)
+                                USB_TIMEOUT_PERIOD_AT, USB_TIMEOUT_PERIOD_10S,
+                                USB_TIMEOUT_PERIOD_1HR,
+                                extend_usb_timeout, fix_nvm_format_size, keep_usb_open, pack_app,
+                                read_core, validate_trial)
 
 # The published core is a local, gitignored artifact.
 CORE_LOD = LIVE_ROOT / 'usb-programmer-build/logicrom/core_v0.5.1.lod'
@@ -97,3 +99,38 @@ class KeepUsbOpenTests(unittest.TestCase):
         target = USB_UNPLUG_BRANCH_AT + 2 + 2 * offset
         # lw a3,20(sp); lw s0,16(sp); jr a3; addiu sp,24
         self.assertEqual(after[target:target + 8], bytes.fromhex('0597049000ef0363'))
+
+
+class UsbTimeoutTests(unittest.TestCase):
+    def core(self, period):
+        core = bytearray(b'\x5a' * APP_START)
+        struct.pack_into('<I', core, USB_TIMEOUT_PERIOD_AT, period)
+        return bytes(core)
+
+    def test_only_the_period_word_changes(self):
+        before = self.core(USB_TIMEOUT_PERIOD_10S)
+        after = extend_usb_timeout(before)
+        self.assertEqual([i for i in range(APP_START) if before[i] != after[i]],
+                         [USB_TIMEOUT_PERIOD_AT + 1, USB_TIMEOUT_PERIOD_AT + 2,
+                          USB_TIMEOUT_PERIOD_AT + 3])
+        self.assertEqual(struct.unpack_from('<I', after, USB_TIMEOUT_PERIOD_AT)[0],
+                         USB_TIMEOUT_PERIOD_1HR)
+
+    def test_refuses_a_core_without_the_reviewed_period(self):
+        for period in (USB_TIMEOUT_PERIOD_1HR, 0, 0x28001):
+            with self.subTest(period=hex(period)), self.assertRaises(ValueError):
+                extend_usb_timeout(self.core(period))
+
+    @unittest.skipUnless(CORE_LOD.exists(), 'the core is a local, gitignored artifact')
+    def test_published_core_period_and_arm_site(self):
+        before = read_core(CORE_LOD)
+        self.assertEqual(struct.unpack_from('<I', before, USB_TIMEOUT_PERIOD_AT)[0],
+                         USB_TIMEOUT_PERIOD_10S)
+        after = extend_usb_timeout(before)
+        self.assertEqual(struct.unpack_from('<I', after, USB_TIMEOUT_PERIOD_AT)[0],
+                         USB_TIMEOUT_PERIOD_1HR)
+        # Arm loads the period: lw a0,0x880fce08 at 0x880fcd8c.
+        self.assertEqual(before[0x0fcd8c:0x0fcd8e], bytes.fromhex('1fb4'))
+        # Timeout body still calls hal_UsbClose; cancel sites unchanged.
+        self.assertEqual(before[0x0fccec:0x0fccec + 6], bytes.fromhex('30180ece0065'))
+        self.assertEqual(after[0x0fccec:0x0fccec + 6], bytes.fromhex('30180ece0065'))

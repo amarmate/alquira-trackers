@@ -1,3 +1,5 @@
+> **Archived 26-10-11.** The current, reconciled account is [rom-flash-access.md](../knowledge/rom-flash-access.md). This note is kept as the dated record of the work; statements here may be superseded there.
+
 # V24 flash restore: implementation contract and evidence gates
 
 2026-10-09 Lisbon update: forced ROM access is now proven with double full-flash
@@ -5,14 +7,14 @@ reads. A separately authorized start-only run on original 417 verified the RAM
 load and received ROM execution acknowledgement, but no programmer READY.
 RST restored vendor USB, and matching double recovery dumps preserve all code
 and protected bytes (533 runtime-data bytes changed across the run/reboot).
-See [run report](v24-programmer-start-2026-10-09.md). No flash command was sent;
+See [run report](26-10-09-programmer-start.md). No flash command was sent;
 writer qualification gates below remain unchanged. Earlier status is historical.
 
 2026-10-08 latest: the user explicitly requested implementation and qualification
 of the host writer, superseding the earlier approval-before-coding requirement.
 `tools/rda_flash.py` now implements the offline planner and a guarded spare writer;
-see [operator instructions](v24-flash-writer.md) and the
-[source/binary audit](v24-loader-audit-2026-10-08.md#host-writer-audit).
+see [operator instructions](26-10-08-flash-writer.md) and the
+[source/binary audit](26-10-08-loader-audit.md#host-writer-audit).
 26 offline tests pass. This is software validation, not hardware qualification.
 
 The USB programmer is built and the original's ROM matches the SDK, but forced

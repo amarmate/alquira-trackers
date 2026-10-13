@@ -8,7 +8,7 @@
 
 **Tech Stack:** Ghidra 12.1.4 headless (`brew --prefix ghidra`), OpenJDK 21 (`brew --prefix openjdk@21`), Ghidra scripts in Java, bash, Python 3 standard library with `unittest`. No new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md` (read section 11, the planning amendments, first: it corrects section 5).
+**Spec:** `docs/done/superpowers/specs/26-10-08-readable-decompile-design.md` (read section 11, the planning amendments, first: it corrects section 5).
 
 **Status:** executed on 2026-10-08. The code blocks below are the plan as written; what was built differs where the execution record at the end says so. The scripts in `tools/ghidra/` and spec section 11 are current, this file is history.
 
@@ -373,7 +373,7 @@ public class ExportC extends GhidraScript {
 ```bash
 #!/bin/bash
 # Rebuild the V24 decompile from the flash backup.
-# Design: docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md
+# Design: docs/done/superpowers/specs/26-10-08-readable-decompile-design.md
 # Offline. Writes firmware/ghidra/ (project, logs) and firmware/decompiled/ (export);
 # both are gitignored because they hold vendor code. Takes about 25 minutes.
 set -euo pipefail
@@ -602,7 +602,7 @@ Expected: the function shows what the four ranges are for (checksum, copy or unp
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tools/ghidra/SetupMemory.java tools/ghidra/build.sh docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md
+git add tools/ghidra/SetupMemory.java tools/ghidra/build.sh docs/done/superpowers/specs/26-10-08-readable-decompile-design.md
 git commit -m "Load the RAM-resident code and mark flash read-only in the V24 build"
 ```
 
@@ -928,7 +928,7 @@ Expected: `119 symbols`; `memcpy` at `0x81e03b10`, `strlen` at `0x81e04480`, `sp
 # Applied last: a row here overrides every automatic name.
 # A row whose address is not a function start fails the build.
 # address	name	source	evidence
-0x88039f54	uat_transSetCallback	traced	docs/v24-firmware-analysis.md section 9, SDK name
+0x88039f54	uat_transSetCallback	traced	docs/knowledge/firmware-analysis.md section 9, SDK name
 ```
 
 (Tabs between columns. Addresses are without the MIPS16 bit.)
@@ -1131,7 +1131,7 @@ Expected: `named functions` several hundred; `names from the ROM map: 24`; `name
 - [ ] **Step 6: Spot check against the captured logs**
 
 Run: `awk -F'\t' '$2 ~ /^(sms_apn_handle|get_apn_handle|set_url_port|uat_transSetCallback|memcpy)$/' firmware/decompiled/index.tsv`, then read `sms_apn_handle` in the file the index names.
-Expected: five rows with sources `log`, `log`, `log`, `traced`, `rom`; the body of `sms_apn_handle` contains the string `sms_apn_handle.apn:%s,%s,%s,%s.` and its address is `881b4f3c`, the APN handler traced by hand in `docs/v24-firmware-analysis.md` section 9. A different address means the log-string rule named a helper: investigate before trusting any other name.
+Expected: five rows with sources `log`, `log`, `log`, `traced`, `rom`; the body of `sms_apn_handle` contains the string `sms_apn_handle.apn:%s,%s,%s,%s.` and its address is `881b4f3c`, the APN handler traced by hand in `docs/knowledge/firmware-analysis.md` section 9. A different address means the log-string rule named a helper: investigate before trusting any other name.
 
 - [ ] **Step 7: Check ROM stubs are indexed, not decompiled (Review Focus 4)**
 
@@ -1166,8 +1166,8 @@ git commit -m "Name V24 functions from log strings, the ROM map and a names file
 ### Task 7: Close the open questions and write down the result
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md` (section 11)
-- Modify: `docs/v24-firmware-analysis.md` (flash map row for `0x2d0000`, new section on the decompile)
+- Modify: `docs/done/superpowers/specs/26-10-08-readable-decompile-design.md` (section 11)
+- Modify: `docs/knowledge/firmware-analysis.md` (flash map row for `0x2d0000`, new section on the decompile)
 - Delete: `firmware/decompiled/v24_code.c` (untracked, superseded)
 
 - [ ] **Step 1: Decide on SDK name matching (spec section 6, source 2)**
@@ -1182,7 +1182,7 @@ Record in spec section 11: the flash address and length of the packed data, the 
 
 - [ ] **Step 3: Update the analysis doc**
 
-In `docs/v24-firmware-analysis.md`: correct the `0x2d0000` flash map row with what Step 2 found (keep **(unverified)** on anything not shown by code), and add a section "11. Decompile" with: the build command, where the output is, how to find a function (`index.tsv`), the final metrics table (baseline against result), and what remains unresolved.
+In `docs/knowledge/firmware-analysis.md`: correct the `0x2d0000` flash map row with what Step 2 found (keep **(unverified)** on anything not shown by code), and add a section "11. Decompile" with: the build command, where the output is, how to find a function (`index.tsv`), the final metrics table (baseline against result), and what remains unresolved.
 
 - [ ] **Step 4: Check the build is reproducible (Review Focus 5)**
 
@@ -1207,7 +1207,7 @@ Run: `.venv/bin/python -m unittest discover -s tools -p 'test_*.py'`
 Expected: all pass.
 
 ```bash
-git add docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md docs/v24-firmware-analysis.md
+git add docs/done/superpowers/specs/26-10-08-readable-decompile-design.md docs/knowledge/firmware-analysis.md
 git commit -m "Record the V24 decompile results and what stays unresolved"
 ```
 
@@ -1241,7 +1241,7 @@ Decisions taken during execution, in order. Each ends with what it costs if it i
 - **Task 6.** v24_names.tsv starts with four rows, not one — boot_LoaderEnter, hal_DbgPageProtectSetup and hal_DbgPageProtectEnable were identified against the SDK's boot_loader.c while checking the memory map — cost if wrong: three wrong names, each with its evidence in the row.
 - **Task 7.** SDK name matching is not started, although 107 of the 202 callees of sms_*_handle are unnamed (53%, just over the plan's one-half trigger) — 106 unnamed callees appear in the handlers' bodies, one (0x881b9304, the log printf) is called by all 128 handlers, 74 by exactly one handler, and nearly all sit at 0x881a....-0x881b...., the vendor's application code, which the public RDA SDK does not contain; SDK matching would name platform functions, not these — cost if wrong: platform callees stay FUN_... until sub-project B names them by hand or a later plan matches the SDK.
 - **Task 7.** step 2's "unpacking gets its own short plan" is void — done in Task 3 (see that ruling).
-- **Task 7.** docs/v24-firmware-analysis.md is edited in the working tree but not committed, although the plan's commit step lists it — the file was untracked before this session and holds the user's wider notes; committing it is the user's call — cost if wrong: the decompile section and the flash-map correction are not in git until the user commits the file.
+- **Task 7.** docs/knowledge/firmware-analysis.md is edited in the working tree but not committed, although the plan's commit step lists it — the file was untracked before this session and holds the user's wider notes; committing it is the user's call — cost if wrong: the decompile section and the flash-map correction are not in git until the user commits the file.
 - **Final review.** Self-review by the author, no independent reviewer. One finding fixed: the build exited without a reason when Ghidra could not be started; it now prints the end of the log.
 
 Not done, by decision: SDK name matching (see the Task 7 decision above).

@@ -28,18 +28,38 @@ def fix_nvm_format_size(core):
 
 # The core opens its USB port when the modem layer reports "charger connected" and
 # closes it on "charger disconnected" (handler at 0x8823c9c8, fed by EV_PM_BC_IND).
-# On 412 the second report came 9.9 s after the first on three starts, cable in, and
-# the console went with it. This is the handler's `beqz a0` to its closing path;
+# The 9.9 s USB loss was not proven to be this report, and ignoring this branch
+# did not prevent it. Offline tracing also found a separate 10 s enumeration
+# timeout that calls hal_UsbClose directly. This is `beqz a0` to the closing path;
 # pointed at the function's return instead, the disconnected report is ignored.
-# An experiment, not a correction: why the board reports no charger is not known.
+# Retained for historical image reconstruction, not the next diagnostic image.
 USB_UNPLUG_BRANCH_AT, USB_UNPLUG_BRANCH, USB_UNPLUG_IGNORED = 0x23C9D0, 0x241A, 0x2432
 
 
 def keep_usb_open(core):
+    """Legacy failed experiment; see extend_usb_timeout() for the reviewed path."""
     if struct.unpack_from('<H', core, USB_UNPLUG_BRANCH_AT)[0] != USB_UNPLUG_BRANCH:
         raise ValueError('Core does not hold the reviewed charger-disconnected branch')
     changed = bytearray(core)
     struct.pack_into('<H', changed, USB_UNPLUG_BRANCH_AT, USB_UNPLUG_IGNORED)
+    return bytes(changed)
+
+
+# Mode 0 of FUN_880fcd6c arms FUN_8200cd54(0x28000, 0x880fcce9, ...) — 163,840 HAL
+# ticks at 16,384 Hz = 10 s — whose timeout body calls hal_UsbClose directly.
+# The descriptor callback cancels only on its second event (state 3->4); every 412
+# run loses USB at ~9.9 s. Reviewed in docs/knowledge/logicrom-core.md#4-usb:
+# extending the period literal tests timing causality with no code-flow change.
+# 0x03840000 = 58,982,400 ticks = 3,600 s. The literal is private to this arm.
+USB_TIMEOUT_PERIOD_AT, USB_TIMEOUT_PERIOD_10S, USB_TIMEOUT_PERIOD_1HR = \
+    0x0FCE08, 0x00028000, 0x03840000
+
+
+def extend_usb_timeout(core):
+    if struct.unpack_from('<I', core, USB_TIMEOUT_PERIOD_AT)[0] != USB_TIMEOUT_PERIOD_10S:
+        raise ValueError('Core does not hold the reviewed 10 s USB timeout period')
+    changed = bytearray(core)
+    struct.pack_into('<I', changed, USB_TIMEOUT_PERIOD_AT, USB_TIMEOUT_PERIOD_1HR)
     return bytes(changed)
 
 
@@ -116,7 +136,12 @@ def main():
     parser.add_argument('--keep-usb-open', action='store_true',
                         help='experiment: ignore the charger-disconnected report that '
                              "closes the core's USB port")
+    parser.add_argument('--usb-timeout-1hr', action='store_true',
+                        help='diagnostic: extend the 10 s USB enumeration timeout '
+                             'period to 3,600 s (one literal, no code-flow change)')
     args = parser.parse_args()
+    if args.keep_usb_open and args.usb_timeout_1hr:
+        raise ValueError('Only one USB experiment per image; see the one-change rule')
     # This preparation is deliberately restricted to the backed-up spare 412.
     from rda_programmer_start import SPARE_412, SPARE_412_SHA
     backup = SPARE_412.read_bytes()
@@ -125,6 +150,8 @@ def main():
     core = fix_nvm_format_size(read_core(args.core))
     if args.keep_usb_open:
         core = keep_usb_open(core)
+    if args.usb_timeout_1hr:
+        core = extend_usb_timeout(core)
     app = pack_app(args.app_raw.read_bytes())
     target = core + app + b'\xff' * (APP_END - APP_START - len(app)) + backup[APP_END:]
     validate_trial(target, backup)
@@ -134,6 +161,10 @@ def main():
                   core_experiment=f'charger-disconnected branch at {USB_UNPLUG_BRANCH_AT:#x}: '
                                   f'{USB_UNPLUG_BRANCH:#x} -> {USB_UNPLUG_IGNORED:#x}'
                                   if args.keep_usb_open else None,
+                  usb_timeout_experiment=f'USB timeout period at {USB_TIMEOUT_PERIOD_AT:#x}: '
+                                          f'{USB_TIMEOUT_PERIOD_10S:#x} -> '
+                                          f'{USB_TIMEOUT_PERIOD_1HR:#x}'
+                                          if args.usb_timeout_1hr else None,
                   app_raw_sha256=sha(args.app_raw.read_bytes()), app_bytes=len(app),
                   backup_sha256=SPARE_412_SHA, image_sha256=sha(target),
                   protected_sha256=sha(target[PROTECTED:]),

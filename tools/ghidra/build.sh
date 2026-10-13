@@ -1,6 +1,6 @@
 #!/bin/bash
 # Rebuild the V24 decompile from the flash backup.
-# Design: docs/superpowers/specs/2026-10-08-v24-readable-decompile-design.md
+# Design: docs/done/superpowers/specs/26-10-08-readable-decompile-design.md
 # Offline. Writes firmware/ghidra/ (project, logs) and firmware/decompiled/ (export);
 # both are gitignored because they hold vendor code. Takes about 15 minutes.
 set -euo pipefail
